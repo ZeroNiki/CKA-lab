@@ -22,6 +22,7 @@ usage: ./lab <command>
   ssh [node]      shell on a node (default: controlplane)
   snapshot-base   save snapshot "clean" of all nodes (once, after first up)
   reset           restore all nodes to snapshot "clean"
+  selftest ARGS   verify tasks: --all | --level <id> | <task-id>...
 EOF
   exit 2
 }
@@ -89,5 +90,10 @@ case "${1:-}" in
   ssh) vagrant ssh "${2:-controlplane}" ;;
   snapshot-base) vagrant snapshot save clean ;;
   reset) vagrant snapshot restore --no-provision clean ;;
+  selftest)
+    shift
+    go build -o "$LAB_DIR/cka-lab" ./cmd/cka-lab
+    "$LAB_DIR/cka-lab" selftest "$@"
+    ;;
   *) usage ;;
 esac

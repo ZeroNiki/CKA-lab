@@ -75,3 +75,14 @@ func (l *lazyCluster) Prepare(ctx context.Context, t *content.Task) error {
 	l.resetOn(err)
 	return err
 }
+
+// Run implements check.NodeExecutor (used by selftest for solution scripts).
+func (l *lazyCluster) Run(ctx context.Context, node, script string) (string, int, error) {
+	_, e, err := l.get()
+	if err != nil {
+		return "", -1, err
+	}
+	out, code, err := e.Run(ctx, node, script)
+	l.resetOn(err)
+	return out, code, err
+}

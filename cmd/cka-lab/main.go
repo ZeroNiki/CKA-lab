@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"cka-lab/internal/content"
 	"cka-lab/internal/game"
 	"cka-lab/internal/progress"
+	"cka-lab/internal/selftest"
 	"cka-lab/web"
 )
 
@@ -25,13 +27,15 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		serve(os.Args[2:])
+	case "selftest":
+		os.Exit(selftestCmd(os.Args[2:]))
 	default:
 		usage()
 	}
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: cka-lab serve [flags]")
+	fmt.Fprintln(os.Stderr, "usage: cka-lab serve [flags]\n       cka-lab selftest [flags] (--all | --level <id> | <task-id>...)")
 	os.Exit(2)
 }
 
@@ -79,4 +83,80 @@ func serve(args []string) {
 	}
 	log.Printf("CKA Lab on http://%s (%d levels)", *addr, len(c.Levels))
 	log.Fatal(srv.ListenAndServe())
+}
+
+func selftestCmd(args []string) int {
+	fs := flag.NewFlagSet("selftest", flag.ExitOnError)
+	var common commonFlags
+	common.register(fs)
+	all := fs.Bool("all", false, "test every task")
+	level := fs.String("level", "", "test the tasks of one level")
+	fs.Parse(args)
+
+	c, err := content.Load(common.contentDir)
+	if err != nil {
+		log.Fatalf("content: %v", err)
+	}
+	var tasks []*content.Task
+	switch {
+	case *all:
+		for _, l := range c.Levels {
+			for _, t := range l.Tasks {
+				tasks = append(tasks, c.TaskByID[t.ID])
+			}
+		}
+	case *level != "":
+		for _, l := range c.Levels {
+			if l.ID == *level {
+				for _, t := range l.Tasks {
+					tasks = append(tasks, c.TaskByID[t.ID])
+				}
+			}
+		}
+		if len(tasks) == 0 {
+			log.Fatalf("unknown level %q", *level)
+		}
+	case fs.NArg() > 0:
+		for _, id := range fs.Args() {
+			t, ok := c.TaskByID[id]
+			if !ok {
+				log.Fatalf("unknown task %q", id)
+			}
+			tasks = append(tasks, t)
+		}
+	default:
+		usage()
+	}
+
+	lc := &lazyCluster{kubeconfig: common.kubeconfig, sshConfig: common.sshConfig}
+	snap := cluster.VagrantSnapshotter{Dir: common.vagrantDir}
+	deps := selftest.Deps{Prepare: lc.Prepare, Check: lc.Check, Exec: lc, Restore: snap.Restore}
+
+	failed := 0
+	ctx := context.Background()
+	for _, t := range selftest.Order(tasks) {
+		r := selftest.RunTask(ctx, deps, t)
+		if r.OK() {
+			fmt.Printf("PASS %s\n", t.ID)
+			continue
+		}
+		failed++
+		fmt.Printf("FAIL %s (%s)\n", t.ID, t.File)
+		switch {
+		case r.Err != nil:
+			fmt.Printf("     %v\n", r.Err)
+		case !r.FailedBeforeSolution:
+			fmt.Println("     checks already pass before the solution: the task solves itself")
+		}
+		for _, res := range r.Results {
+			if !res.Pass {
+				fmt.Printf("     x %s: %s\n", res.Description, res.Actual)
+			}
+		}
+	}
+	fmt.Printf("%d/%d passed\n", len(tasks)-failed, len(tasks))
+	if failed > 0 {
+		return 1
+	}
+	return 0
 }
