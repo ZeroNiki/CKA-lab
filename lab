@@ -11,12 +11,14 @@ fi
 
 LAB_DIR=".lab"
 NODES=(controlplane node01 node02)
+ADDR="127.0.0.1:8080"
+PID_FILE="$LAB_DIR/server.pid"
 
 usage() {
   cat >&2 <<'EOF'
 usage: ./lab <command>
-  up              start VMs (create on first run), install addons, fetch kubeconfig
-  down            stop VMs
+  up              start VMs (create on first run), install addons, start the trainer UI
+  down            stop the trainer and the VMs
   ssh [node]      shell on a node (default: controlplane)
   snapshot-base   save snapshot "clean" of all nodes (once, after first up)
   reset           restore all nodes to snapshot "clean"
@@ -40,10 +42,44 @@ cmd_up() {
   # The kubeconfig grants cluster-admin: keep it private and never print it.
   (umask 077 && vagrant ssh controlplane -c 'sudo cat /etc/kubernetes/admin.conf' >"$LAB_DIR/kubeconfig" 2>/dev/null)
   vagrant ssh-config >"$LAB_DIR/ssh_config"
+  start_server
   echo "Cluster is up. Work on the control plane with: ./lab ssh"
 }
 
+server_running() {
+  [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+start_server() {
+  go build -o "$LAB_DIR/cka-lab" ./cmd/cka-lab
+  # Restart so a freshly built binary and edited content are always picked up.
+  stop_server
+  nohup "$LAB_DIR/cka-lab" serve -addr "$ADDR" >"$LAB_DIR/server.log" 2>&1 &
+  echo $! >"$PID_FILE"
+  local deadline=$((SECONDS + 15))
+  until curl -sf "http://$ADDR/api/state" >/dev/null; do
+    if ((SECONDS > deadline)) || ! server_running; then
+      echo "trainer did not start, see $LAB_DIR/server.log:" >&2
+      tail -n 20 "$LAB_DIR/server.log" >&2
+      exit 1
+    fi
+    sleep 0.5
+  done
+  echo "Trainer: http://$ADDR"
+  xdg-open "http://$ADDR" >/dev/null 2>&1 || true
+}
+
+stop_server() {
+  if server_running; then
+    kill "$(cat "$PID_FILE")"
+    # Wait for the port to be released before a restart binds it again.
+    while server_running; do sleep 0.2; done
+  fi
+  rm -f "$PID_FILE"
+}
+
 cmd_down() {
+  stop_server
   vagrant halt
 }
 
