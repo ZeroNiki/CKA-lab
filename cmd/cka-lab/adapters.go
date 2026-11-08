@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"cka-lab/internal/check"
 	"cka-lab/internal/cluster"
@@ -40,9 +41,7 @@ func (l *lazyCluster) get() (*cluster.Clients, *cluster.SSHExecutor, error) {
 
 func (l *lazyCluster) resetOn(err error) {
 	if errors.Is(err, check.ErrUnavailable) {
-		l.mu.Lock()
-		l.clients, l.exec = nil, nil
-		l.mu.Unlock()
+		l.drop()
 	}
 }
 
@@ -85,4 +84,57 @@ func (l *lazyCluster) Run(ctx context.Context, node, script string) (string, int
 	out, code, err := e.Run(ctx, node, script)
 	l.resetOn(err)
 	return out, code, err
+}
+
+// restoringSnapshotter waits for the API after a rollback. The VMs resume from a memory
+// snapshot, so pooled keep-alive connections are reset by the guest and the API needs a
+// moment; without the wait the next task's setup fails with "connection reset by peer".
+type restoringSnapshotter struct {
+	cluster.Snapshotter
+	lc       *lazyCluster
+	ready    func(ctx context.Context) error // nil: GET /readyz through a fresh client
+	interval time.Duration
+}
+
+const restoreReadyTimeout = 5 * time.Minute
+
+func (r restoringSnapshotter) Restore(ctx context.Context) error {
+	if err := r.Snapshotter.Restore(ctx); err != nil {
+		return err
+	}
+	ready, interval := r.ready, r.interval
+	if ready == nil {
+		ready = r.lc.apiReady
+	}
+	if interval == 0 {
+		interval = 3 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, restoreReadyTimeout)
+	defer cancel()
+	for {
+		r.lc.drop()
+		err := ready(ctx)
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("API not ready after restore: %w", err)
+		case <-time.After(interval):
+		}
+	}
+}
+
+func (l *lazyCluster) drop() {
+	l.mu.Lock()
+	l.clients, l.exec = nil, nil
+	l.mu.Unlock()
+}
+
+func (l *lazyCluster) apiReady(ctx context.Context) error {
+	c, _, err := l.get()
+	if err != nil {
+		return err
+	}
+	return c.Kube.Discovery().RESTClient().Get().AbsPath("/readyz").Do(ctx).Error()
 }

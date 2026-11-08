@@ -30,8 +30,9 @@ checks:
     stdout: {op: eq, value: ok}
     retry: 60s
   - type: command
-    description: kubernetes.default resolves from the Pod
-    run: kubectl -n lab-dnsconf exec resolver -- nslookup kubernetes.default >/dev/null 2>&1
+    description: kubernetes.default.svc.cluster.local resolves from the Pod
+    # busybox >= 1.28 nslookup ignores the search list, so query the full name.
+    run: kubectl -n lab-dnsconf exec resolver -- nslookup kubernetes.default.svc.cluster.local >/dev/null 2>&1
     retry: 30s
   - type: command
     description: /home/vagrant/dns-ip.txt contains the kube-dns ClusterIP

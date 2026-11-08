@@ -72,7 +72,7 @@ func serve(args []string) {
 		log.Fatalf("progress: %v", err)
 	}
 	lc := &lazyCluster{kubeconfig: common.kubeconfig, sshConfig: common.sshConfig}
-	snap := cluster.VagrantSnapshotter{Dir: common.vagrantDir}
+	snap := restoringSnapshotter{Snapshotter: cluster.VagrantSnapshotter{Dir: common.vagrantDir}, lc: lc}
 	rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
 	svc := game.NewService(c, cfg, st, lc, lc, snap, rng, time.Now)
 
@@ -129,7 +129,7 @@ func selftestCmd(args []string) int {
 	}
 
 	lc := &lazyCluster{kubeconfig: common.kubeconfig, sshConfig: common.sshConfig}
-	snap := cluster.VagrantSnapshotter{Dir: common.vagrantDir}
+	snap := restoringSnapshotter{Snapshotter: cluster.VagrantSnapshotter{Dir: common.vagrantDir}, lc: lc}
 	deps := selftest.Deps{Prepare: lc.Prepare, Check: lc.Check, Exec: lc, Restore: snap.Restore}
 
 	failed := 0

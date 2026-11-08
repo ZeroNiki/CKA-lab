@@ -22,6 +22,7 @@ setup:
         default.conf: |
           server {
             listen 80;
+            listen [::]:80;
             location / { return 200 'lab ok'; }
           }
 checks:
