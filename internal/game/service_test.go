@@ -37,11 +37,16 @@ func (f *fakePreparer) Prepare(_ context.Context, t *content.Task) error {
 type fakeSnap struct {
 	mu       sync.Mutex
 	restores int
+	missing  bool          // Exists reports false
+	ctxErr   error         // ctx.Err() seen by Restore after the caller was cancelled
 	block    chan struct{} // if set, Restore waits on it
 	started  chan struct{}
 }
 
-func (f *fakeSnap) Restore(context.Context) error {
+func (f *fakeSnap) Exists(context.Context) (bool, error) { return !f.missing, nil }
+
+func (f *fakeSnap) Restore(ctx context.Context) error {
+	f.ctxErr = ctx.Err()
 	if f.started != nil {
 		close(f.started)
 	}
@@ -405,5 +410,48 @@ func TestBuy_UnknownItem(t *testing.T) {
 	h := newHarness(t)
 	if _, err := h.svc.Buy("pizza"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRestore_NotCancelledWithRequest(t *testing.T) {
+	h := newHarness(t)
+	h.passTheory(t)
+	h.svc.StartTask(context.Background(), ModeLevels, "demo-t7")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the browser went away; a half-done restore would split etcd and the workers
+	if _, err := h.svc.CheckTask(ctx, "demo-t7"); err != nil {
+		t.Fatal(err)
+	}
+	if h.sn.restores != 1 || h.sn.ctxErr != nil {
+		t.Fatalf("restores=%d ctxErr=%v", h.sn.restores, h.sn.ctxErr)
+	}
+}
+
+func TestCheckTask_AttemptSurvivesRestart(t *testing.T) {
+	h := newHarness(t)
+	h.svc.StartTask(context.Background(), ModePractice, "demo-t1")
+	// ./lab up restarts the server; a new Service over the same store must keep the attempt.
+	svc2 := NewService(h.svc.Content(), testConfig(), h.store, h.ch, h.pr, h.sn,
+		rand.New(rand.NewPCG(2, 2)), func() time.Time { return testNow })
+	if mode, ok := svc2.ActiveMode("demo-t1"); !ok || mode != ModePractice {
+		t.Fatalf("ActiveMode = %q, %v", mode, ok)
+	}
+	if out, err := svc2.CheckTask(context.Background(), "demo-t1"); err != nil || !out.Pass {
+		t.Fatalf("out = %+v err = %v", out, err)
+	}
+}
+
+func TestStartTask_SnapshotMissing(t *testing.T) {
+	h := newHarness(t)
+	h.passTheory(t)
+	h.sn.missing = true
+	if err := h.svc.StartTask(context.Background(), ModeLevels, "demo-t7"); !errors.Is(err, ErrNoSnapshot) {
+		t.Fatalf("err = %v, want ErrNoSnapshot", err)
+	}
+	if len(h.pr.prepared) != 0 {
+		t.Fatal("a cluster-breaking task must not be prepared without a snapshot")
+	}
+	if err := h.svc.StartTask(context.Background(), ModeLevels, "demo-t1"); err != nil {
+		t.Fatalf("normal tasks do not need the snapshot: %v", err)
 	}
 }

@@ -2,17 +2,20 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"cka-lab/internal/content"
 )
@@ -103,6 +106,20 @@ func TestPrepareTask_RecreatesExistingNamespace(t *testing.T) {
 	}
 }
 
+func TestPrepareTask_TerminatingNamespaceWaits(t *testing.T) {
+	c := testClients(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "lab-web"}})
+	cs := c.Kube.(*kubefake.Clientset)
+	// A namespace that is already terminating answers DELETE with 409 Conflict.
+	cs.PrependReactor("delete", "namespaces", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		cs.Tracker().Delete(a.GetResource(), "", "lab-web")
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Resource: "namespaces"}, "lab-web",
+			errors.New("The system is ensuring all content is removed from this namespace"))
+	})
+	if err := PrepareTask(context.Background(), c, &fakeExec{}, testTask()); err != nil {
+		t.Fatalf("terminating namespace must be waited for, got %v", err)
+	}
+}
+
 func TestPrepareTask_ExistingClusterObjectIsUpdated(t *testing.T) {
 	c := testClients()
 	task := testTask()
@@ -126,9 +143,9 @@ func TestPrepareTask_CommandFailure(t *testing.T) {
 func TestVagrantSnapshotter_Args(t *testing.T) {
 	var gotDir string
 	var gotArgs []string
-	s := VagrantSnapshotter{Dir: "/lab", Runner: func(_ context.Context, dir string, args ...string) error {
+	s := VagrantSnapshotter{Dir: "/lab", Runner: func(_ context.Context, dir string, args ...string) (string, error) {
 		gotDir, gotArgs = dir, args
-		return nil
+		return "", nil
 	}}
 	if err := s.Restore(context.Background()); err != nil {
 		t.Fatal(err)
@@ -139,3 +156,22 @@ func TestVagrantSnapshotter_Args(t *testing.T) {
 }
 
 func init() { nsPollInterval = time.Millisecond }
+
+func TestVagrantSnapshotter_Exists(t *testing.T) {
+	outputs := map[string]string{
+		"controlplane": "==> controlplane: \nclean\n",
+		"node01":       "clean\nother\n",
+		"node02":       "No snapshots have been taken yet!\n",
+	}
+	s := VagrantSnapshotter{Dir: "/lab", Runner: func(_ context.Context, _ string, args ...string) (string, error) {
+		return outputs[args[len(args)-1]], nil
+	}}
+	ok, err := s.Exists(context.Background())
+	if err != nil || ok {
+		t.Fatalf("node02 has no snapshot: ok=%v err=%v", ok, err)
+	}
+	outputs["node02"] = "clean\n"
+	if ok, _ := s.Exists(context.Background()); !ok {
+		t.Fatal("all nodes have clean")
+	}
+}

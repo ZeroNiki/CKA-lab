@@ -18,6 +18,7 @@ func TestCompare(t *testing.T) {
 		{"eq not found", "eq", nil, false, "3", false, false},
 		{"ne", "ne", []string{"2"}, true, "3", true, false},
 		{"ne equal", "ne", []string{"3"}, true, "3", false, false},
+		{"ne not found", "ne", nil, false, "true", true, false},
 		{"contains", "contains", []string{"nginx:1.27.3"}, true, "1.27", true, false},
 		{"contains missing", "contains", []string{"nginx:1.26"}, true, "1.27", false, false},
 		{"matches", "matches", []string{"web-7d9f"}, true, `^web-[a-z0-9]+$`, true, false},

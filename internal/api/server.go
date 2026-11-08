@@ -126,6 +126,8 @@ func (s *server) task(w http.ResponseWriter, r *http.Request) {
 		"id": t.ID, "title": t.Title, "difficulty": t.Difficulty, "ns": t.NS,
 		"statement": t.Statement, "requiresSnapshot": t.RequiresSnapshot, "levelId": t.LevelID,
 	}
+	mode, _ := s.svc.ActiveMode(t.ID)
+	out["active"] = string(mode) // "" when no attempt is started
 	st := s.svc.State()
 	// Docs and the solution are part of the reward: hidden until solved or explicitly revealed.
 	if st.SolvedCount[t.ID] > 0 || st.Revealed[t.ID] {
@@ -223,7 +225,7 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, game.ErrQuizDone), errors.Is(err, game.ErrUnknownQuestion),
 		errors.Is(err, game.ErrAlreadyAnswered), errors.Is(err, game.ErrOptionOutOfRange):
 		code = http.StatusBadRequest
-	case errors.Is(err, game.ErrClusterBusy), errors.Is(err, game.ErrBreakActive):
+	case errors.Is(err, game.ErrClusterBusy), errors.Is(err, game.ErrBreakActive), errors.Is(err, game.ErrNoSnapshot):
 		code = http.StatusConflict
 	case errors.Is(err, game.ErrInsufficientCoins):
 		code = http.StatusPaymentRequired

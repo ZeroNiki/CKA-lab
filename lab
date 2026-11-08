@@ -36,7 +36,8 @@ all_running() {
 cmd_up() {
   mkdir -p "$LAB_DIR"
   if ! all_running; then
-    vagrant up --provider=libvirt
+    # Sequential: controlplane is defined first and must finish kubeadm init before workers join.
+    vagrant up --provider=libvirt --no-parallel
   fi
   # Idempotent and quick when already installed; re-running heals a half-finished first up.
   vagrant provision controlplane --provision-with addons

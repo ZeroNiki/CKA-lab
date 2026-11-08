@@ -32,7 +32,12 @@ type nopPreparer struct{}
 
 func (nopPreparer) Prepare(context.Context, *content.Task) error { return nil }
 
-type blockingSnap struct{ started, release chan struct{} }
+type blockingSnap struct {
+	started, release chan struct{}
+	missing          bool
+}
+
+func (b *blockingSnap) Exists(context.Context) (bool, error) { return !b.missing, nil }
 
 func (b *blockingSnap) Restore(context.Context) error {
 	if b.started != nil {
@@ -255,4 +260,26 @@ func TestAPI_MixedNextAndAnswer(t *testing.T) {
 		}
 	}
 	t.Fatal("no question in 50 tries")
+}
+
+func TestAPI_TaskShowsActiveAttempt(t *testing.T) {
+	e := newEnv(t)
+	_, task := e.do(t, "GET", "/api/tasks/demo-t1", "")
+	if task["active"] != "" {
+		t.Fatalf("active before start = %v", task["active"])
+	}
+	e.do(t, "POST", "/api/tasks/demo-t1/start", `{"mode":"practice"}`)
+	_, task = e.do(t, "GET", "/api/tasks/demo-t1", "")
+	if task["active"] != "practice" {
+		t.Fatalf("active after start = %v", task["active"])
+	}
+}
+
+func TestAPI_SnapshotMissing409(t *testing.T) {
+	e := newEnv(t)
+	e.snap.missing = true
+	code, body := e.do(t, "POST", "/api/tasks/demo-t7/start", `{"mode":"practice"}`)
+	if code != 409 || !strings.Contains(body["error"].(string), "snapshot-base") {
+		t.Fatalf("code %d body %v", code, body)
+	}
 }

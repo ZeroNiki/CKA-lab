@@ -228,7 +228,11 @@ const Task = {
     const outcome = ref(null);
 
     async function load() {
-      try { task.value = await api("GET", `/api/tasks/${props.id}`); } catch (e) { showError(e); }
+      try {
+        task.value = await api("GET", `/api/tasks/${props.id}`);
+        // The attempt lives on the server, so a reload or a server restart keeps it.
+        started.value = !!task.value.active;
+      } catch (e) { showError(e); }
     }
     async function start() {
       if (task.value.requiresSnapshot &&
@@ -286,7 +290,7 @@ const Task = {
         <button class="primary" @click="start" :disabled="working || store.busy">{{ started ? 'Restart' : 'Start' }}</button>
         <button @click="check" :disabled="!started || working || store.busy">Check</button>
         <button @click="reveal" v-if="!task.solution" :disabled="working">Show solution</button>
-        <button @click="giveUp" v-if="started && task.requiresSnapshot" :disabled="working || store.busy">Give up</button>
+        <button @click="giveUp" v-if="task.requiresSnapshot" :disabled="working || store.busy" title="Restore all nodes from the snapshot">Give up</button>
         <span class="muted" v-if="working">{{ task.requiresSnapshot && outcome && outcome.pass ? 'Restoring cluster…' : 'Working…' }}</span>
       </div>
       <div v-if="outcome" style="margin-top:12px">

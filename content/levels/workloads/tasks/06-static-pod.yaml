@@ -22,7 +22,7 @@ checks:
     node: node01
     run: |
       dir=$(sudo awk '/staticPodPath/ {print $2}' /var/lib/kubelet/config.yaml)
-      sudo grep -l 'static-web' "$dir"/*.yaml >/dev/null && echo found
+      sudo grep -rlq 'static-web' "$dir" && echo found
     stdout: {op: eq, value: found}
   - type: resource
     description: Mirror Pod static-web-node01 is Running and owned by the Node

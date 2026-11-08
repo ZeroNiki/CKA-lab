@@ -50,6 +50,10 @@ func PrepareTask(ctx context.Context, c *Clients, exec check.NodeExecutor, t *co
 func recreateNamespace(ctx context.Context, c *Clients, ns string) error {
 	nsClient := c.Kube.CoreV1().Namespaces()
 	err := nsClient.Delete(ctx, ns, metav1.DeleteOptions{})
+	// Conflict means the namespace is already terminating: wait for it like after our own delete.
+	if apierrors.IsConflict(err) {
+		err = nil
+	}
 	if err != nil && !apierrors.IsNotFound(err) {
 		return wrapAPI(err)
 	}

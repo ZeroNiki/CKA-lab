@@ -20,7 +20,8 @@ func Compare(op string, actual []string, found bool, want string) (bool, error) 
 		return false, fmt.Errorf("unknown op %q", op)
 	}
 	if !found || len(actual) == 0 {
-		return false, nil
+		// "not equal to X" holds for a field that is not set at all.
+		return op == "ne", nil
 	}
 	for _, v := range actual {
 		ok, err := compareOne(op, v, want)

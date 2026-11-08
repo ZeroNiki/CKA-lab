@@ -9,6 +9,21 @@ if [[ -f /etc/kubernetes/kubelet.conf ]]; then
   exit 0
 fi
 
+# A failed earlier join leaves pki/ and a running kubelet behind; preflight would reject a retry.
+if [[ -f /etc/kubernetes/pki/ca.crt ]]; then
+  kubeadm reset -f
+fi
+
+echo "Waiting for the API server at ${CONTROLPLANE_IP}:6443..."
+deadline=$((SECONDS + 900))
+until curl -skf "https://${CONTROLPLANE_IP}:6443/readyz" >/dev/null; do
+  if ((SECONDS > deadline)); then
+    echo "timeout: API server is not ready" >&2
+    exit 1
+  fi
+  sleep 5
+done
+
 # Skipping CA pinning is acceptable on an isolated lab network: the CA hash would
 # have to travel guest -> host -> guest, and the rsync synced folder is one-way.
 kubeadm join "${CONTROLPLANE_IP}:6443" \

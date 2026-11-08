@@ -14,6 +14,8 @@ import (
 	"cka-lab/internal/progress"
 )
 
+const restoreTimeout = 15 * time.Minute
+
 type Mode string
 
 const (
@@ -42,6 +44,7 @@ var (
 	ErrInsufficientCoins = errors.New("not enough coins")
 	ErrBreakActive       = errors.New("a break is already running")
 	ErrBadMode           = errors.New("mode must be levels, mixed or practice")
+	ErrNoSnapshot        = errors.New("no base snapshot: run ./lab snapshot-base before cluster-breaking tasks")
 )
 
 type CheckOutcome struct {
@@ -72,15 +75,15 @@ type Service struct {
 	rng       *rand.Rand
 	busy      bool
 	quizzes   map[string]*Quiz
-	active    map[string]Mode // taskID -> mode of the running attempt
 	mixedPerm map[string]QuizQuestion
+	snapOK    bool // the base snapshot was seen once; it is never deleted by the trainer
 }
 
 func NewService(c *content.Content, cfg Config, st *progress.Store, ch Checker, pr Preparer,
 	sn cluster.Snapshotter, rng *rand.Rand, now func() time.Time) *Service {
 	return &Service{
 		content: c, cfg: cfg, store: st, checker: ch, prep: pr, snap: sn, rng: rng, now: now,
-		quizzes: map[string]*Quiz{}, active: map[string]Mode{}, mixedPerm: map[string]QuizQuestion{},
+		quizzes: map[string]*Quiz{}, mixedPerm: map[string]QuizQuestion{},
 	}
 }
 
@@ -169,13 +172,66 @@ func (s *Service) StartTask(ctx context.Context, mode Mode, taskID string) error
 	if s.Busy() {
 		return ErrClusterBusy
 	}
+	if t.RequiresSnapshot {
+		if err := s.requireSnapshot(ctx); err != nil {
+			return err
+		}
+	}
 	if err := s.prep.Prepare(ctx, t); err != nil {
 		return err
 	}
+	// Persisted so a page reload or a server restart (./lab up) keeps the attempt.
+	return s.store.Update(func(st *progress.State) error {
+		st.Active[taskID] = string(mode)
+		return nil
+	})
+}
+
+// ActiveMode returns the mode of the started attempt of a task, if any.
+func (s *Service) ActiveMode(taskID string) (Mode, bool) {
+	m, ok := s.store.Get().Active[taskID]
+	return Mode(m), ok
+}
+
+func (s *Service) requireSnapshot(ctx context.Context) error {
 	s.mu.Lock()
-	s.active[taskID] = mode
+	ok := s.snapOK
+	s.mu.Unlock()
+	if ok {
+		return nil
+	}
+	exists, err := s.snap.Exists(ctx)
+	if err != nil {
+		return fmt.Errorf("check base snapshot: %w", err)
+	}
+	if !exists {
+		return ErrNoSnapshot
+	}
+	s.mu.Lock()
+	s.snapOK = true
 	s.mu.Unlock()
 	return nil
+}
+
+// takeAttempt removes and returns the started attempt, so a double click cannot award twice.
+func (s *Service) takeAttempt(taskID string) (Mode, bool, error) {
+	var mode Mode
+	var ok bool
+	err := s.store.Update(func(st *progress.State) error {
+		var m string
+		m, ok = st.Active[taskID]
+		mode = Mode(m)
+		delete(st.Active, taskID)
+		return nil
+	})
+	return mode, ok, err
+}
+
+func (s *Service) putAttempt(taskID string, mode Mode) error {
+	return s.store.Update(func(st *progress.State) error {
+		st.Active[taskID] = string(mode)
+		return nil
+	})
 }
 
 func (s *Service) CheckTask(ctx context.Context, taskID string) (CheckOutcome, error) {
@@ -183,15 +239,13 @@ func (s *Service) CheckTask(ctx context.Context, taskID string) (CheckOutcome, e
 	if err != nil {
 		return CheckOutcome{}, err
 	}
-	s.mu.Lock()
-	if s.busy {
-		s.mu.Unlock()
+	if s.Busy() {
 		return CheckOutcome{}, ErrClusterBusy
 	}
-	mode, ok := s.active[taskID]
-	// Take the attempt while checking so a double click cannot award twice.
-	delete(s.active, taskID)
-	s.mu.Unlock()
+	mode, ok, err := s.takeAttempt(taskID)
+	if err != nil {
+		return CheckOutcome{}, err
+	}
 	if !ok {
 		return CheckOutcome{}, ErrNotStarted
 	}
@@ -199,9 +253,9 @@ func (s *Service) CheckTask(ctx context.Context, taskID string) (CheckOutcome, e
 	results, err := s.checker.Check(ctx, t)
 	pass := err == nil && allPass(results)
 	if !pass {
-		s.mu.Lock()
-		s.active[taskID] = mode
-		s.mu.Unlock()
+		if perr := s.putAttempt(taskID, mode); perr != nil {
+			return CheckOutcome{}, perr
+		}
 		if err != nil {
 			return CheckOutcome{}, err
 		}
@@ -270,7 +324,10 @@ func (s *Service) restore(ctx context.Context) error {
 		s.busy = false
 		s.mu.Unlock()
 	}()
-	return s.snap.Restore(ctx)
+	// A cancelled request (reload, closed tab) must not kill vagrant halfway through the nodes.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+	defer cancel()
+	return s.snap.Restore(rctx)
 }
 
 // Reveal returns the reference solution. Before the first solve it marks the task revealed (no coins next time).
@@ -296,9 +353,9 @@ func (s *Service) GiveUp(ctx context.Context, taskID string) error {
 	if s.Busy() {
 		return ErrClusterBusy
 	}
-	s.mu.Lock()
-	delete(s.active, taskID)
-	s.mu.Unlock()
+	if _, _, err := s.takeAttempt(taskID); err != nil {
+		return err
+	}
 	if t.RequiresSnapshot {
 		return s.restore(ctx)
 	}

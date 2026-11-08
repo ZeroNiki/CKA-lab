@@ -13,13 +13,14 @@ import (
 )
 
 type State struct {
-	Coins          int             `json:"coins"`
-	TheoryPassed   map[string]bool `json:"theoryPassed"`   // levelID
-	LevelSolved    map[string]bool `json:"levelSolved"`    // taskID, solved in "levels" mode only
-	SolvedCount    map[string]int  `json:"solvedCount"`    // taskID, solves in any mode
-	Revealed       map[string]bool `json:"revealed"`       // taskID, solution shown before solving
-	LevelBonusPaid map[string]bool `json:"levelBonusPaid"` // levelID
-	BreakUntil     *time.Time      `json:"breakUntil,omitempty"`
+	Coins          int               `json:"coins"`
+	TheoryPassed   map[string]bool   `json:"theoryPassed"`   // levelID
+	LevelSolved    map[string]bool   `json:"levelSolved"`    // taskID, solved in "levels" mode only
+	SolvedCount    map[string]int    `json:"solvedCount"`    // taskID, solves in any mode
+	Revealed       map[string]bool   `json:"revealed"`       // taskID, solution shown before solving
+	LevelBonusPaid map[string]bool   `json:"levelBonusPaid"` // levelID
+	Active         map[string]string `json:"active"`         // taskID -> mode of the started attempt
+	BreakUntil     *time.Time        `json:"breakUntil,omitempty"`
 }
 
 func (s *State) init() {
@@ -37,6 +38,9 @@ func (s *State) init() {
 	}
 	if s.LevelBonusPaid == nil {
 		s.LevelBonusPaid = map[string]bool{}
+	}
+	if s.Active == nil {
+		s.Active = map[string]string{}
 	}
 }
 
