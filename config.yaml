@@ -1,0 +1,22 @@
+# Coins per solved task by difficulty; repeat solves get repeatPercent of it (rounded down).
+coins:
+  easy: 10
+  medium: 20
+  hard: 30
+  levelBonus: 50
+  repeatPercent: 30
+
+# What coins buy. A purchase starts a break timer in the UI.
+shop:
+  - id: break-5
+    title: Break 5 min
+    minutes: 5
+    price: 30
+  - id: break-15
+    title: Break 15 min
+    minutes: 15
+    price: 80
+  - id: break-30
+    title: Break 30 min
+    minutes: 30
+    price: 150
