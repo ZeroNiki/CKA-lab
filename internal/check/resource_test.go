@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -95,6 +96,18 @@ func TestResource_ExplicitNamespace(t *testing.T) {
 	env := testEnv(t, []runtime.Object{deployment("other", "api", 1, "i", nil)})
 	target := &Target{APIVersion: "apps/v1", Kind: "Deployment", Name: "api", Namespace: "other"}
 	if res := Run(context.Background(), env, []Spec{{Type: "resource", Description: "d", Target: target}}); !res[0].Pass {
+		t.Fatalf("got %+v", res[0])
+	}
+}
+
+func TestResource_UnknownKindIsFailNotUnavailable(t *testing.T) {
+	env := testEnv(t, nil)
+	spec := Spec{Type: "resource", Description: "d", Target: &Target{APIVersion: "example.com/v1", Kind: "Widget", Name: "w"}}
+	res, err := RunErr(context.Background(), env, []Spec{spec})
+	if err != nil {
+		t.Fatalf("unknown kind must be a failed check, not an error: %v", err)
+	}
+	if res[0].Pass || !strings.Contains(res[0].Actual, "unknown kind") {
 		t.Fatalf("got %+v", res[0])
 	}
 }

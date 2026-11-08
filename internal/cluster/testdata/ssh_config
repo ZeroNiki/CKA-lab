@@ -1,0 +1,24 @@
+Host controlplane
+  HostName 192.168.121.10
+  User vagrant
+  Port 22
+  UserKnownHostsFile /dev/null
+  StrictHostKeyChecking no
+  PasswordAuthentication no
+  IdentityFile /home/u/lab/.vagrant/machines/controlplane/libvirt/private_key
+  IdentitiesOnly yes
+  LogLevel FATAL
+  PubkeyAcceptedKeyTypes +ssh-rsa
+  HostKeyAlgorithms +ssh-rsa
+
+Host node01
+  HostName 192.168.121.11
+  User vagrant
+  Port 22
+  IdentityFile /home/u/lab/.vagrant/machines/node01/libvirt/private_key
+
+Host node02
+  HostName 192.168.121.12
+  User vagrant
+  Port 2222
+  IdentityFile "/home/u/my lab/.vagrant/machines/node02/libvirt/private_key"

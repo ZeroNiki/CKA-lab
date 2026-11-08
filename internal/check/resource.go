@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,6 +17,10 @@ import (
 
 func runResource(ctx context.Context, env Env, s Spec) (Result, error) {
 	objs, err := fetchObjects(ctx, env, s.Target)
+	var bad checkFailure
+	if errors.As(err, &bad) {
+		return Result{Actual: bad.msg}, nil
+	}
 	if err != nil {
 		if apiError(err) != nil {
 			return Result{}, apiError(err)
@@ -43,12 +48,20 @@ func runResource(ctx context.Context, env Env, s Spec) (Result, error) {
 func fetchObjects(ctx context.Context, env Env, t *Target) ([]unstructured.Unstructured, error) {
 	gv, err := schema.ParseGroupVersion(t.APIVersion)
 	if err != nil {
-		return nil, err
+		return nil, checkFailure{err.Error()}
 	}
-	mapping, err := env.Mapper.RESTMapping(schema.GroupKind{Group: gv.Group, Kind: t.Kind}, gv.Version)
+	gk := schema.GroupKind{Group: gv.Group, Kind: t.Kind}
+	mapping, err := env.Mapper.RESTMapping(gk, gv.Version)
+	if meta.IsNoMatchError(err) {
+		// The kind may come from a CRD the user just created: refresh discovery once.
+		if r, ok := env.Mapper.(meta.ResettableRESTMapper); ok {
+			r.Reset()
+			mapping, err = env.Mapper.RESTMapping(gk, gv.Version)
+		}
+	}
 	if err != nil {
 		if meta.IsNoMatchError(err) {
-			return nil, fmt.Errorf("unknown kind %s %s", t.APIVersion, t.Kind)
+			return nil, checkFailure{fmt.Sprintf("unknown kind %s %s", t.APIVersion, t.Kind)}
 		}
 		return nil, err
 	}
@@ -80,6 +93,11 @@ func fetchObjects(ctx context.Context, env Env, t *Target) ([]unstructured.Unstr
 	}
 	return list.Items, nil
 }
+
+// checkFailure is a problem with what exists in the cluster, not with reaching it.
+type checkFailure struct{ msg string }
+
+func (e checkFailure) Error() string { return e.msg }
 
 // evalAssertion checks a on every object; zero objects means "not found".
 func evalAssertion(objs []unstructured.Unstructured, a Assertion) (bool, string, error) {

@@ -16,7 +16,7 @@ type Spec struct {
 	Description string `json:"description"`
 
 	// resource
-	Target *Target      `json:"target,omitempty"`
+	Target *Target     `json:"target,omitempty"`
 	Assert []Assertion `json:"assert,omitempty"`
 
 	// podsReady
