@@ -1,0 +1,68 @@
+id: workloads-06-static-pod
+title: Static Pod on a worker
+difficulty: hard
+ns: lab-static
+statement: |
+  Create a **static** Pod on `node01` (connect with `./lab ssh node01`):
+
+  - Pod name `static-web`, namespace `lab-static`
+  - image `nginx:1.27-alpine`, container port `80`
+  - label `role=static`
+  - liveness probe: HTTP GET `/` on port 80, first check after 5 seconds
+
+  Use the static Pod path configured in the kubelet on that node.
+  The mirror Pod must be visible in the API and Running.
+setup:
+  commands:
+    - node: node01
+      run: sudo rm -f /etc/kubernetes/manifests/static-web.yaml
+checks:
+  - type: command
+    description: The manifest is in the kubelet staticPodPath on node01
+    node: node01
+    run: |
+      dir=$(sudo awk '/staticPodPath/ {print $2}' /var/lib/kubelet/config.yaml)
+      sudo grep -l 'static-web' "$dir"/*.yaml >/dev/null && echo found
+    stdout: {op: eq, value: found}
+  - type: resource
+    description: Mirror Pod static-web-node01 is Running and owned by the Node
+    target: {apiVersion: v1, kind: Pod, name: static-web-node01}
+    retry: 120s
+    assert:
+      - {path: "{.status.phase}", op: eq, value: Running}
+      - {path: "{.metadata.ownerReferences[0].kind}", op: eq, value: Node}
+      - {path: "{.metadata.labels.role}", op: eq, value: static}
+  - type: resource
+    description: Liveness probe HTTP GET / on port 80 with initialDelaySeconds 5
+    target: {apiVersion: v1, kind: Pod, name: static-web-node01}
+    assert:
+      - {path: "{.spec.containers[0].livenessProbe.httpGet.path}", op: eq, value: /}
+      - {path: "{.spec.containers[0].livenessProbe.httpGet.port}", op: eq, value: "80"}
+      - {path: "{.spec.containers[0].livenessProbe.initialDelaySeconds}", op: eq, value: "5"}
+docs: https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/
+solution: |
+  ./lab ssh node01
+  grep staticPodPath /var/lib/kubelet/config.yaml   # /etc/kubernetes/manifests
+  # write the Pod manifest there (generate it with
+  #   kubectl run static-web --image=nginx:1.27-alpine --port=80 -l role=static --dry-run=client -o yaml
+  # on the control plane, add namespace and livenessProbe)
+  # The mirror Pod name gets the node name suffix: static-web-node01.
+solutionNode: node01
+solutionScript: |
+  set -euo pipefail
+  sudo tee /etc/kubernetes/manifests/static-web.yaml >/dev/null <<'EOF'
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: static-web
+    namespace: lab-static
+    labels: {role: static}
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports: [{containerPort: 80}]
+        livenessProbe:
+          httpGet: {path: /, port: 80}
+          initialDelaySeconds: 5
+  EOF

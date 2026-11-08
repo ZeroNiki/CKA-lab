@@ -1,0 +1,70 @@
+id: workloads-03-limits
+title: LimitRange defaults and QoS
+difficulty: hard
+ns: lab-limits
+statement: |
+  In namespace `lab-limits`:
+
+  1. Create a LimitRange `defaults` so that containers without resources get
+     a default CPU request of `100m`, memory request of `64Mi`,
+     CPU limit of `500m` and memory limit of `256Mi`.
+  2. Create a Pod `web` (image `nginx:1.27-alpine`) without any `resources` in its spec.
+     It must end up with the defaults above.
+  3. Create a Pod `critical` (image `nginx:1.27-alpine`) whose QoS class is `Guaranteed`,
+     with `200m` CPU and `128Mi` memory.
+checks:
+  - type: resource
+    description: LimitRange defaults has the required default limits and requests
+    target: {apiVersion: v1, kind: LimitRange, name: defaults}
+    assert:
+      - {path: '{.spec.limits[?(@.type=="Container")].default.cpu}', op: eq, value: 500m}
+      - {path: '{.spec.limits[?(@.type=="Container")].default.memory}', op: eq, value: 256Mi}
+      - {path: '{.spec.limits[?(@.type=="Container")].defaultRequest.cpu}', op: eq, value: 100m}
+      - {path: '{.spec.limits[?(@.type=="Container")].defaultRequest.memory}', op: eq, value: 64Mi}
+  - type: resource
+    description: Pod web got the defaults injected
+    target: {apiVersion: v1, kind: Pod, name: web}
+    assert:
+      - {path: "{.spec.containers[0].resources.limits.cpu}", op: eq, value: 500m}
+      - {path: "{.spec.containers[0].resources.requests.memory}", op: eq, value: 64Mi}
+  - type: resource
+    description: Pod critical is Guaranteed with 200m CPU and 128Mi memory
+    target: {apiVersion: v1, kind: Pod, name: critical}
+    assert:
+      - {path: "{.status.qosClass}", op: eq, value: Guaranteed}
+      - {path: "{.spec.containers[0].resources.requests.cpu}", op: eq, value: 200m}
+      - {path: "{.spec.containers[0].resources.limits.memory}", op: eq, value: 128Mi}
+docs: https://kubernetes.io/docs/tasks/administer-cluster/manage-resources/memory-default-namespace/
+solution: |
+  # LimitRange: spec.limits: [{type: Container, default: {cpu: 500m, memory: 256Mi},
+  #                            defaultRequest: {cpu: 100m, memory: 64Mi}}]
+  kubectl -n lab-limits run web --image=nginx:1.27-alpine
+  # Guaranteed: requests == limits for cpu AND memory in every container
+  # resources: {requests: {cpu: 200m, memory: 128Mi}, limits: {cpu: 200m, memory: 128Mi}}
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-limits apply -f - <<'EOF'
+  apiVersion: v1
+  kind: LimitRange
+  metadata:
+    name: defaults
+  spec:
+    limits:
+      - type: Container
+        default: {cpu: 500m, memory: 256Mi}
+        defaultRequest: {cpu: 100m, memory: 64Mi}
+  EOF
+  kubectl -n lab-limits run web --image=nginx:1.27-alpine
+  kubectl -n lab-limits apply -f - <<'EOF'
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: critical
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        resources:
+          requests: {cpu: 200m, memory: 128Mi}
+          limits: {cpu: 200m, memory: 128Mi}
+  EOF

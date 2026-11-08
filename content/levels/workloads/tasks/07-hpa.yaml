@@ -1,0 +1,87 @@
+id: workloads-07-hpa
+title: Autoscaling with behavior
+difficulty: hard
+ns: lab-hpa
+statement: |
+  In namespace `lab-hpa` there is a Deployment `php` without resource requests.
+
+  1. Give its container `web` a CPU request of `200m`.
+  2. Create a HorizontalPodAutoscaler named `php` (API `autoscaling/v2`) for the
+     Deployment with:
+     - minimum 2 and maximum 6 replicas,
+     - target average CPU utilization 60%,
+     - scale-down stabilization window of 120 seconds.
+
+  The HPA must be able to read metrics (metrics-server is installed).
+setup:
+  manifests:
+    - |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: php
+        labels: {app: php}
+      spec:
+        replicas: 1
+        selector:
+          matchLabels: {app: php}
+        template:
+          metadata:
+            labels: {app: php}
+          spec:
+            containers:
+              - name: web
+                image: nginx:1.27-alpine
+checks:
+  - type: resource
+    description: Container web requests 200m CPU
+    target: {apiVersion: apps/v1, kind: Deployment, name: php}
+    assert:
+      - {path: '{.spec.template.spec.containers[?(@.name=="web")].resources.requests.cpu}', op: eq, value: 200m}
+  - type: resource
+    description: HPA php targets Deployment php, 2..6 replicas, 60% CPU
+    target: {apiVersion: autoscaling/v2, kind: HorizontalPodAutoscaler, name: php}
+    assert:
+      - {path: "{.spec.scaleTargetRef.kind}", op: eq, value: Deployment}
+      - {path: "{.spec.scaleTargetRef.name}", op: eq, value: php}
+      - {path: "{.spec.minReplicas}", op: eq, value: "2"}
+      - {path: "{.spec.maxReplicas}", op: eq, value: "6"}
+      - {path: '{.spec.metrics[?(@.type=="Resource")].resource.name}', op: eq, value: cpu}
+      - {path: '{.spec.metrics[?(@.type=="Resource")].resource.target.averageUtilization}', op: eq, value: "60"}
+  - type: resource
+    description: Scale-down stabilization window is 120 seconds
+    target: {apiVersion: autoscaling/v2, kind: HorizontalPodAutoscaler, name: php}
+    assert:
+      - {path: "{.spec.behavior.scaleDown.stabilizationWindowSeconds}", op: eq, value: "120"}
+  - type: resource
+    description: HPA reads CPU metrics (ScalingActive=True)
+    target: {apiVersion: autoscaling/v2, kind: HorizontalPodAutoscaler, name: php}
+    retry: 180s
+    assert:
+      - {path: '{.status.conditions[?(@.type=="ScalingActive")].status}', op: eq, value: "True"}
+docs: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/#configurable-scaling-behavior
+solution: |
+  kubectl -n lab-hpa set resources deployment php -c web --requests=cpu=200m
+  # kubectl autoscale creates autoscaling/v2 but cannot set behavior; edit or write YAML:
+  #   spec.behavior.scaleDown.stabilizationWindowSeconds: 120
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-hpa set resources deployment php -c web --requests=cpu=200m
+  kubectl -n lab-hpa apply -f - <<'EOF'
+  apiVersion: autoscaling/v2
+  kind: HorizontalPodAutoscaler
+  metadata:
+    name: php
+  spec:
+    scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: php}
+    minReplicas: 2
+    maxReplicas: 6
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target: {type: Utilization, averageUtilization: 60}
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 120
+  EOF

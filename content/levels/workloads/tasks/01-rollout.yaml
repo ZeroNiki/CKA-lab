@@ -1,0 +1,71 @@
+id: workloads-01-rollout
+title: Controlled rolling update
+difficulty: medium
+ns: lab-rollout
+statement: |
+  In namespace `lab-rollout` there is a Deployment `api` (4 replicas).
+
+  1. Change its update strategy so that during a rollout at most 2 extra Pods
+     are created and at most 1 Pod is unavailable.
+  2. Update the container `nginx` to image `nginx:1.27.3-alpine`.
+  3. Record the reason of the change: the Deployment must carry the annotation
+     `kubernetes.io/change-cause` with value `upgrade to 1.27.3`.
+
+  The rollout must complete successfully.
+setup:
+  manifests:
+    - |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api
+        labels: {app: api}
+      spec:
+        replicas: 4
+        selector:
+          matchLabels: {app: api}
+        template:
+          metadata:
+            labels: {app: api}
+          spec:
+            containers:
+              - name: nginx
+                image: nginx:1.27.2-alpine
+checks:
+  - type: resource
+    description: Strategy allows maxSurge 2 and maxUnavailable 1
+    target: {apiVersion: apps/v1, kind: Deployment, name: api}
+    assert:
+      - {path: "{.spec.strategy.rollingUpdate.maxSurge}", op: eq, value: "2"}
+      - {path: "{.spec.strategy.rollingUpdate.maxUnavailable}", op: eq, value: "1"}
+  - type: resource
+    description: Container nginx uses nginx:1.27.3-alpine
+    target: {apiVersion: apps/v1, kind: Deployment, name: api}
+    assert:
+      - {path: '{.spec.template.spec.containers[?(@.name=="nginx")].image}', op: eq, value: "nginx:1.27.3-alpine"}
+  - type: resource
+    description: change-cause annotation is set
+    target: {apiVersion: apps/v1, kind: Deployment, name: api}
+    assert:
+      - {path: '{.metadata.annotations.kubernetes\.io/change-cause}', op: eq, value: "upgrade to 1.27.3"}
+  - type: resource
+    description: Rollout finished (4 updated and available replicas)
+    target: {apiVersion: apps/v1, kind: Deployment, name: api}
+    retry: 120s
+    assert:
+      - {path: "{.status.updatedReplicas}", op: eq, value: "4"}
+      - {path: "{.status.availableReplicas}", op: eq, value: "4"}
+docs: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment
+solution: |
+  kubectl -n lab-rollout patch deployment api --type merge \
+    -p '{"spec":{"strategy":{"type":"RollingUpdate","rollingUpdate":{"maxSurge":2,"maxUnavailable":1}}}}'
+  kubectl -n lab-rollout set image deployment/api nginx=nginx:1.27.3-alpine
+  kubectl -n lab-rollout annotate deployment api kubernetes.io/change-cause="upgrade to 1.27.3" --overwrite
+  kubectl -n lab-rollout rollout status deployment api
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-rollout patch deployment api --type merge \
+    -p '{"spec":{"strategy":{"type":"RollingUpdate","rollingUpdate":{"maxSurge":2,"maxUnavailable":1}}}}'
+  kubectl -n lab-rollout set image deployment/api nginx=nginx:1.27.3-alpine
+  kubectl -n lab-rollout annotate deployment api kubernetes.io/change-cause="upgrade to 1.27.3" --overwrite
+  kubectl -n lab-rollout rollout status deployment api --timeout=180s

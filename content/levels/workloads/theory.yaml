@@ -1,0 +1,129 @@
+- id: workloads-q01
+  question: >-
+    You run `kubectl scale deployment api --replicas=5`. What happens to the Deployment's rollout history?
+  options:
+    - A new revision is recorded and a rolling update starts
+    - The current ReplicaSet is scaled; no new revision is recorded
+    - All Pods are recreated with the same template
+    - A new ReplicaSet is created but old Pods are kept
+  answer: 1
+  explanation: |
+    Only a change to `.spec.template` creates a new ReplicaSet (and revision). `replicas` is not part
+    of the Pod template, so the existing ReplicaSet is simply scaled.
+
+- id: workloads-q02
+  question: >-
+    A Deployment has `replicas: 4`, `maxSurge: 25%`, `maxUnavailable: 25%`. During a rolling update, what are the maximum total Pods and the minimum available Pods?
+  options:
+    - 5 total, 3 available
+    - 4 total, 3 available
+    - 5 total, 4 available
+    - 6 total, 2 available
+  answer: 0
+  explanation: |
+    25% of 4 = 1. maxSurge rounds up (1 extra Pod → 5 total), maxUnavailable rounds down
+    (1 may be unavailable → at least 3 available).
+
+- id: workloads-q03
+  question: >-
+    In a namespace without a LimitRange, the only container of a Pod has `requests.memory: 128Mi` and `limits.memory: 128Mi`, and no CPU settings. What is the Pod's QoS class?
+  options:
+    - Guaranteed
+    - Burstable
+    - BestEffort
+    - None, the Pod is rejected
+  answer: 1
+  explanation: |
+    Guaranteed needs requests == limits for both CPU and memory in every container. CPU is not set, so the
+    Pod is Burstable. Check with `kubectl get pod -o jsonpath='{.status.qosClass}'`.
+
+- id: workloads-q04
+  question: >-
+    A Pod mounts a ConfigMap as a volume (no subPath) and the ConfigMap is updated. What happens?
+  options:
+    - Nothing until the Pod is recreated
+    - The files are updated eventually (kubelet sync period + cache TTL); environment variables from the same ConfigMap are not
+    - Both files and environment variables are updated immediately
+    - The Pod is restarted automatically
+  answer: 1
+  explanation: |
+    Projected ConfigMap volumes are refreshed by the kubelet. Env vars are resolved only at container start.
+    A `subPath` mount is never updated.
+
+- id: workloads-q05
+  question: >-
+    Node `node01` has taint `gpu=true:NoSchedule`. A Pod tolerates it (`key: gpu, operator: Exists, effect: NoSchedule`) but has no nodeSelector or affinity. Where can it be scheduled?
+  options:
+    - Only on node01
+    - On node01 or any other node without blocking taints
+    - Nowhere, the toleration must also set `value`
+    - Only on nodes labeled `gpu=true`
+  answer: 1
+  explanation: |
+    A toleration only allows scheduling onto tainted nodes; it does not attract the Pod there. To pin it,
+    combine the toleration with nodeSelector or nodeAffinity.
+
+- id: workloads-q06
+  question: >-
+    Which statement about `preferredDuringSchedulingIgnoredDuringExecution` node affinity is true?
+  options:
+    - If no node matches, the Pod stays Pending
+    - It is evaluated again when node labels change and Pods are evicted
+    - It adds a weight to matching nodes in scoring; the Pod is still scheduled if none match
+    - It can only be used together with a required rule
+  answer: 2
+  explanation: |
+    "preferred" rules only influence scoring (weight 1-100). "IgnoredDuringExecution" means running Pods
+    are not evicted when labels change.
+
+- id: workloads-q07
+  question: >-
+    Where does the kubelet look for static Pod manifests on a kubeadm node by default, and how do you find the path if it was changed?
+  options:
+    - /etc/kubernetes/static; in /etc/kubernetes/kubelet.conf
+    - /etc/kubernetes/manifests; `staticPodPath` in /var/lib/kubelet/config.yaml
+    - /var/lib/kubelet/pods; in the kubelet systemd unit
+    - /etc/kubernetes/manifests; it cannot be changed
+  answer: 1
+  explanation: |
+    kubeadm sets `staticPodPath: /etc/kubernetes/manifests` in the kubelet config file
+    (/var/lib/kubelet/config.yaml). `ps aux | grep kubelet` shows which `--config` is used.
+
+- id: workloads-q08
+  question: >-
+    You delete the mirror Pod of a static Pod with `kubectl delete pod`. What happens?
+  options:
+    - The static Pod is removed from the node permanently
+    - The kubelet recreates the mirror Pod; the container keeps running
+    - The manifest file is deleted from the node
+    - The API server rejects the request
+  answer: 1
+  explanation: |
+    The API object is only a mirror. The kubelet owns the Pod via the manifest file and recreates the mirror.
+    To remove a static Pod, delete or move its manifest.
+
+- id: workloads-q09
+  question: >-
+    An HPA targets 50% CPU utilization. What is utilization measured against?
+  options:
+    - The container CPU limit
+    - The node allocatable CPU
+    - The container CPU request
+    - The namespace ResourceQuota
+  answer: 2
+  explanation: |
+    Resource utilization is the ratio of current usage to the request. Without CPU requests the HPA reports
+    `FailedGetResourceMetric` and does not scale.
+
+- id: workloads-q10
+  question: >-
+    You apply a LimitRange with default CPU limits to a namespace that already has running Pods. What happens to those Pods?
+  options:
+    - They are restarted with the new limits
+    - Nothing; LimitRange is enforced only at admission of new Pods
+    - They are evicted if they exceed the new limits
+    - Their limits are updated in place
+  answer: 1
+  explanation: |
+    LimitRange is an admission controller: it mutates and validates Pods when they are created.
+    Existing Pods are not touched.

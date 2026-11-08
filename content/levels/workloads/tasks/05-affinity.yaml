@@ -1,0 +1,78 @@
+id: workloads-05-affinity
+title: One cache Pod per worker
+difficulty: hard
+ns: lab-affinity
+statement: |
+  In namespace `lab-affinity` create a Deployment `cache` (image `redis:7-alpine`,
+  2 replicas, Pod label `app=cache`) so that:
+
+  - Pods may only run on nodes whose `kubernetes.io/hostname` is `node01` or `node02`
+    (a hard requirement, not a preference);
+  - two `cache` Pods are **never** placed on the same node (also a hard requirement).
+
+  Both Pods must be Running.
+setup:
+  commands:
+    # A taint left by another task would make the second Pod unschedulable.
+    - run: kubectl taint nodes --all dedicated- 2>/dev/null || true
+checks:
+  - type: resource
+    description: Required nodeAffinity on kubernetes.io/hostname In [node01, node02]
+    target: {apiVersion: apps/v1, kind: Deployment, name: cache}
+    assert:
+      - {path: "{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[*].matchExpressions[*].key}", op: eq, value: kubernetes.io/hostname}
+      - {path: "{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[*].matchExpressions[*].values}", op: contains, value: node01}
+      - {path: "{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[*].matchExpressions[*].values}", op: contains, value: node02}
+  - type: resource
+    description: Required podAntiAffinity with topologyKey kubernetes.io/hostname
+    target: {apiVersion: apps/v1, kind: Deployment, name: cache}
+    assert:
+      - {path: "{.spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[*].topologyKey}", op: eq, value: kubernetes.io/hostname}
+  - type: podsReady
+    description: 2 cache Pods are Ready
+    selector: app=cache
+    min: 2
+    retry: 120s
+  - type: command
+    description: The cache Pods run on two different nodes
+    run: kubectl -n lab-affinity get pods -l app=cache -o jsonpath='{.items[*].spec.nodeName}' | tr ' ' '\n' | sort -u | wc -l
+    stdout: {op: eq, value: "2"}
+docs: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#inter-pod-affinity-and-anti-affinity
+solution: |
+  # Pod template affinity:
+  #   nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms:
+  #     - matchExpressions: [{key: kubernetes.io/hostname, operator: In, values: [node01, node02]}]
+  #   podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution:
+  #     - labelSelector: {matchLabels: {app: cache}}
+  #       topologyKey: kubernetes.io/hostname
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-affinity apply -f - <<'EOF'
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: cache
+  spec:
+    replicas: 2
+    selector:
+      matchLabels: {app: cache}
+    template:
+      metadata:
+        labels: {app: cache}
+      spec:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - {key: kubernetes.io/hostname, operator: In, values: [node01, node02]}
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels: {app: cache}
+                topologyKey: kubernetes.io/hostname
+        containers:
+          - name: redis
+            image: redis:7-alpine
+  EOF
+  kubectl -n lab-affinity rollout status deployment cache --timeout=180s
