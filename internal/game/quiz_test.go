@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"cka-lab/internal/content"
@@ -27,7 +28,7 @@ func explain(id string) string { return "explain for " + id }
 
 func rightOption(q QuizQuestion) int {
 	for i, o := range q.Options {
-		if o == "right" {
+		if strings.EqualFold(o, "right") {
 			return i
 		}
 	}
@@ -36,7 +37,7 @@ func rightOption(q QuizQuestion) int {
 
 func wrongOption(q QuizQuestion) int {
 	for i, o := range q.Options {
-		if o != "right" {
+		if !strings.EqualFold(o, "right") {
 			return i
 		}
 	}
