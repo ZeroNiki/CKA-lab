@@ -1,0 +1,79 @@
+id: trouble-02-no-endpoints
+title: Service that reaches nothing
+difficulty: medium
+ns: lab-endpoints
+statement: |
+  In namespace `lab-endpoints`, Pod `client` cannot get a response from `http://shop:8080`.
+  The Deployment `shop` is healthy and must not be changed.
+
+  Fix the Service `shop` so that `wget -qO- http://shop:8080` from `client` returns the nginx page.
+  The Service must keep port `8080`.
+setup:
+  manifests:
+    - |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: shop
+      spec:
+        replicas: 2
+        selector:
+          matchLabels: {app: shop, version: v2}
+        template:
+          metadata:
+            labels: {app: shop, version: v2}
+          spec:
+            containers:
+              - name: nginx
+                image: nginx:1.27-alpine
+                ports: [{containerPort: 80}]
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: shop
+      spec:
+        selector: {app: shop, version: v1}
+        ports:
+          - {port: 8080, targetPort: 8080}
+      ---
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: client
+      spec:
+        containers:
+          - {name: busybox, image: "busybox:1.36", command: ["sleep", "3600"]}
+checks:
+  - type: resource
+    description: Deployment shop is unchanged
+    target: {apiVersion: apps/v1, kind: Deployment, name: shop}
+    assert:
+      - {path: "{.spec.template.metadata.labels.version}", op: eq, value: v2}
+      - {path: "{.spec.template.spec.containers[0].ports[0].containerPort}", op: eq, value: "80"}
+  - type: resource
+    description: Service shop keeps port 8080
+    target: {apiVersion: v1, kind: Service, name: shop}
+    assert:
+      - {path: "{.spec.ports[0].port}", op: eq, value: "8080"}
+  - type: resource
+    description: Service shop has 2 ready endpoints
+    target: {apiVersion: discovery.k8s.io/v1, kind: EndpointSlice, labelSelector: kubernetes.io/service-name=shop}
+    retry: 60s
+    assert:
+      - {path: "{.endpoints[*].conditions.ready}", op: eq, value: "true"}
+  - type: command
+    description: client gets the nginx page from http://shop:8080
+    run: kubectl -n lab-endpoints exec client -- wget -qO- -T 3 http://shop:8080 | grep -c 'Welcome to nginx'
+    stdout: {op: gte, value: "1"}
+    retry: 60s
+docs: https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/
+solution: |
+  kubectl -n lab-endpoints get endpointslices -l kubernetes.io/service-name=shop   # no endpoints
+  kubectl -n lab-endpoints get pods --show-labels                                 # version=v2, port 80
+  # Fix the selector (version: v2) and targetPort (80).
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-endpoints patch service shop --type merge \
+    -p '{"spec":{"selector":{"app":"shop","version":"v2"},"ports":[{"port":8080,"targetPort":80}]}}'
+  kubectl -n lab-endpoints rollout status deployment shop --timeout=120s

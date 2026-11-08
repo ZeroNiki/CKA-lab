@@ -1,0 +1,39 @@
+id: trouble-06-containerd
+title: Node NotReady after a runtime problem
+difficulty: hard
+ns: lab-runtime
+requiresSnapshot: true
+statement: |
+  This task breaks a node. After Check (or Give up) the whole cluster is restored from the snapshot.
+
+  `node02` becomes `NotReady` soon after Start, although its kubelet service is running.
+  Connect with `./lab ssh node02`, find the cause and fix it so that it also survives a reboot.
+setup:
+  commands:
+    - node: node02
+      run: |
+        sudo systemctl disable containerd >/dev/null 2>&1
+        sudo systemctl stop containerd
+checks:
+  - type: command
+    description: containerd on node02 is active and enabled
+    node: node02
+    run: echo "$(systemctl is-active containerd) $(systemctl is-enabled containerd)"
+    stdout: {op: eq, value: active enabled}
+    retry: 30s
+  - type: resource
+    description: node02 is Ready
+    target: {apiVersion: v1, kind: Node, name: node02}
+    retry: 180s
+    assert:
+      - {path: '{.status.conditions[?(@.type=="Ready")].status}', op: eq, value: "True"}
+docs: https://kubernetes.io/docs/tasks/debug/debug-cluster/#example-debugging-a-down-unreachable-node
+solution: |
+  kubectl describe node node02     # Ready=False: container runtime is down / PLEG is not healthy
+  ./lab ssh node02
+  sudo journalctl -u kubelet -n 20 # ... /run/containerd/containerd.sock: connect: no such file
+  sudo systemctl enable --now containerd
+solutionNode: node02
+solutionScript: |
+  set -euo pipefail
+  sudo systemctl enable --now containerd

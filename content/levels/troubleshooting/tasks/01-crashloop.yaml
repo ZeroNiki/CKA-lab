@@ -1,0 +1,70 @@
+id: trouble-01-crashloop
+title: Fix a CrashLoopBackOff
+difficulty: medium
+ns: lab-crash
+statement: |
+  In namespace `lab-crash` the Pods of Deployment `api` are in `CrashLoopBackOff`.
+
+  Find out why and fix it so that both replicas are Running and Ready.
+  Do **not** change the container image or its command.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: api-config
+      data:
+        app.conf: |
+          listen=8080
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api
+      spec:
+        replicas: 2
+        selector:
+          matchLabels: {app: api}
+        template:
+          metadata:
+            labels: {app: api}
+          spec:
+            containers:
+              - name: app
+                image: busybox:1.36
+                command: ["sh", "-c", "cat /config/app.conf && sleep 3600"]
+                volumeMounts:
+                  - {name: config, mountPath: /etc/config}
+            volumes:
+              - name: config
+                configMap: {name: api-config}
+checks:
+  - type: resource
+    description: Image and command are unchanged
+    target: {apiVersion: apps/v1, kind: Deployment, name: api}
+    assert:
+      - {path: "{.spec.template.spec.containers[0].image}", op: eq, value: "busybox:1.36"}
+      - {path: "{.spec.template.spec.containers[0].command[2]}", op: eq, value: "cat /config/app.conf && sleep 3600"}
+  - type: podsReady
+    description: 2 api Pods are Ready
+    selector: app=api
+    min: 2
+    retry: 120s
+  - type: resource
+    description: Deployment api has 2 available replicas
+    target: {apiVersion: apps/v1, kind: Deployment, name: api}
+    retry: 60s
+    assert:
+      - {path: "{.status.availableReplicas}", op: eq, value: "2"}
+docs: https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/
+solution: |
+  kubectl -n lab-crash logs deploy/api --previous   # cat: can't open '/config/app.conf'
+  # The ConfigMap is mounted at /etc/config but the command reads /config.
+  kubectl -n lab-crash patch deployment api --type json \
+    -p '[{"op":"replace","path":"/spec/template/spec/containers/0/volumeMounts/0/mountPath","value":"/config"}]'
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-crash patch deployment api --type json \
+    -p '[{"op":"replace","path":"/spec/template/spec/containers/0/volumeMounts/0/mountPath","value":"/config"}]'
+  kubectl -n lab-crash rollout status deployment api --timeout=180s

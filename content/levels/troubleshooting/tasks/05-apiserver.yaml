@@ -1,0 +1,48 @@
+id: trouble-05-apiserver
+title: The API server is down
+difficulty: hard
+ns: lab-apiserver
+requiresSnapshot: true
+statement: |
+  This task breaks the control plane. After Check (or Give up) the whole cluster is restored from the snapshot.
+
+  Shortly after Start, `kubectl` on the control plane stops working: the kube-apiserver no longer
+  comes up. Find the cause with the tools that work without the API server, and fix it.
+
+  The API must answer `kubectl get --raw /readyz` with `ok`, and all nodes must be Ready.
+setup:
+  commands:
+    - run: |
+        set -e
+        sudo sed -i 's#--etcd-servers=https://127.0.0.1:2379#--etcd-servers=https://127.0.0.1:2381#' /etc/kubernetes/manifests/kube-apiserver.yaml
+checks:
+  - type: command
+    description: kube-apiserver connects to etcd on 2379 again
+    run: sudo grep -q -- '--etcd-servers=https://127.0.0.1:2379' /etc/kubernetes/manifests/kube-apiserver.yaml && echo ok
+    stdout: {op: eq, value: ok}
+  - type: command
+    description: The API server is ready
+    run: kubectl get --raw /readyz 2>/dev/null
+    stdout: {op: eq, value: ok}
+    retry: 180s
+  - type: command
+    description: All 3 nodes are Ready
+    run: kubectl get nodes --no-headers | awk '$2 == "Ready"' | wc -l
+    stdout: {op: eq, value: "3"}
+    retry: 120s
+docs: https://kubernetes.io/docs/tasks/debug/debug-cluster/
+solution: |
+  sudo crictl ps -a | grep kube-apiserver        # Exited, restarting
+  sudo crictl logs <container-id>                # connection to 127.0.0.1:2381 refused
+  # etcd listens for clients on 2379 (see /etc/kubernetes/manifests/etcd.yaml --listen-client-urls)
+  sudo sed -i 's#127.0.0.1:2381#127.0.0.1:2379#' /etc/kubernetes/manifests/kube-apiserver.yaml
+  # the kubelet recreates the static Pod; wait for: kubectl get --raw /readyz
+solutionScript: |
+  set -euo pipefail
+  sudo sed -i 's#--etcd-servers=https://127.0.0.1:2381#--etcd-servers=https://127.0.0.1:2379#' /etc/kubernetes/manifests/kube-apiserver.yaml
+  for _ in $(seq 1 60); do
+    sleep 5
+    if [ "$(kubectl get --raw /readyz 2>/dev/null)" = ok ]; then exit 0; fi
+  done
+  echo "API server did not come back" >&2
+  exit 1

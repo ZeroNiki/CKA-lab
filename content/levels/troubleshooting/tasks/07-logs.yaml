@@ -1,0 +1,58 @@
+id: trouble-07-logs
+title: Find the failing Pod in the logs
+difficulty: hard
+ns: lab-logs
+statement: |
+  In namespace `lab-logs` four worker Pods are running. Exactly one of them has logged a line
+  containing `ERROR`.
+
+  On the control plane write:
+  - the **name** of that Pod into `/home/vagrant/error-pod.txt`,
+  - the **name of the node** it runs on into `/home/vagrant/error-node.txt`.
+
+  Each file must contain only the name.
+setup:
+  commands:
+    - run: |
+        set -e
+        rm -f /home/vagrant/error-pod.txt /home/vagrant/error-node.txt
+        bad=$((RANDOM % 4))
+        for i in 0 1 2 3; do
+          name="worker-$(tr -dc 'a-z0-9' </dev/urandom | head -c 5)"
+          if [ "$i" -eq "$bad" ]; then
+            cmd='for n in 1 2 3; do echo "INFO step $n"; sleep 1; done; echo "ERROR: disk quota exceeded"; sleep 3600'
+          else
+            cmd='while true; do echo "INFO heartbeat"; sleep 5; done'
+          fi
+          kubectl -n lab-logs run "$name" --image=busybox:1.36 --labels=app=worker -- sh -c "$cmd" >/dev/null
+        done
+        kubectl -n lab-logs wait --for=condition=Ready pod -l app=worker --timeout=120s >/dev/null
+checks:
+  - type: command
+    description: error-pod.txt names the Pod that logged ERROR
+    run: |
+      want=$(for p in $(kubectl -n lab-logs get pods -l app=worker -o name); do
+        kubectl -n lab-logs logs "$p" | grep -q ERROR && echo "${p#pod/}"; done)
+      [ -n "$want" ] && [ "$(tr -d '[:space:]' </home/vagrant/error-pod.txt)" = "$want" ] && echo ok
+    stdout: {op: eq, value: ok}
+    retry: 15s
+  - type: command
+    description: error-node.txt names the node of that Pod
+    run: |
+      pod=$(tr -d '[:space:]' </home/vagrant/error-pod.txt)
+      want=$(kubectl -n lab-logs get pod "$pod" -o jsonpath='{.spec.nodeName}')
+      [ -n "$want" ] && [ "$(tr -d '[:space:]' </home/vagrant/error-node.txt)" = "$want" ] && echo ok
+    stdout: {op: eq, value: ok}
+docs: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/
+solution: |
+  for p in $(kubectl -n lab-logs get pods -o name); do
+    kubectl -n lab-logs logs "$p" | grep -q ERROR && echo "${p#pod/}"
+  done > /home/vagrant/error-pod.txt
+  kubectl -n lab-logs get pod "$(cat /home/vagrant/error-pod.txt)" -o jsonpath='{.spec.nodeName}' > /home/vagrant/error-node.txt
+solutionScript: |
+  set -euo pipefail
+  sleep 5
+  for p in $(kubectl -n lab-logs get pods -l app=worker -o name); do
+    if kubectl -n lab-logs logs "$p" | grep -q ERROR; then echo "${p#pod/}"; fi
+  done > /home/vagrant/error-pod.txt
+  kubectl -n lab-logs get pod "$(cat /home/vagrant/error-pod.txt)" -o jsonpath='{.spec.nodeName}' > /home/vagrant/error-node.txt

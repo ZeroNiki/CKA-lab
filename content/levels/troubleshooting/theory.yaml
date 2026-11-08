@@ -1,0 +1,128 @@
+- id: trouble-q01
+  question: >-
+    A container is in `CrashLoopBackOff`. Which command shows the output of the **previous** (crashed) run?
+  options:
+    - 'kubectl logs <pod> --since=1h'
+    - 'kubectl logs <pod> --previous'
+    - 'kubectl describe pod <pod> --logs'
+    - 'kubectl get events --previous'
+  answer: 1
+  explanation: |
+    `--previous` (`-p`) reads the log of the last terminated instance of the container. `describe` shows
+    the last state, exit code and reason.
+
+- id: trouble-q02
+  question: >-
+    `kubectl get nodes` hangs with "connection refused" on the control plane. kubectl is configured correctly. Where do you look first?
+  options:
+    - 'kubectl logs -n kube-system kube-apiserver'
+    - 'crictl ps -a and crictl logs for the kube-apiserver container, and the static Pod manifest'
+    - 'kubectl describe node controlplane'
+    - 'The CoreDNS logs'
+  answer: 1
+  explanation: |
+    Without the API server, kubectl cannot help. The kubelet runs it from /etc/kubernetes/manifests; use
+    `crictl ps -a | grep apiserver`, `crictl logs <id>` and `journalctl -u kubelet`.
+
+- id: trouble-q03
+  question: >-
+    A node is `NotReady`. On the node, `systemctl status kubelet` shows `inactive (dead)`. What is the usual fix after finding the root cause?
+  options:
+    - 'kubeadm reset'
+    - 'systemctl enable --now kubelet (and daemon-reload if unit files changed)'
+    - 'kubectl uncordon <node>'
+    - 'Restart the control plane'
+  answer: 1
+  explanation: |
+    Start and enable the service. If a systemd unit or drop-in was edited, run `systemctl daemon-reload`
+    first. `journalctl -u kubelet -f` shows why it fails.
+
+- id: trouble-q04
+  question: >-
+    Where is the kubelet drop-in with `ExecStart` on a kubeadm node installed from pkgs.k8s.io?
+  options:
+    - '/etc/kubernetes/kubelet.conf'
+    - '/usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf'
+    - '/var/lib/kubelet/config.yaml'
+    - '/etc/default/kubelet only'
+  answer: 1
+  explanation: |
+    The drop-in sets ExecStart with KUBELET_KUBECONFIG_ARGS, KUBELET_CONFIG_ARGS and the env files
+    /var/lib/kubelet/kubeadm-flags.env and /etc/default/kubelet. `systemctl cat kubelet` shows all parts.
+
+- id: trouble-q05
+  question: >-
+    A Pod is `Pending` with event `0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 Insufficient cpu`. What does it mean?
+  options:
+    - 'The image cannot be pulled'
+    - 'The control plane is tainted and the two workers do not have enough allocatable CPU for the requests'
+    - 'The Pod exceeds its CPU limit'
+    - 'The scheduler is down'
+  answer: 1
+  explanation: |
+    The scheduler explains per node why it did not fit. Compare the Pod requests with
+    `kubectl describe node` (Allocatable and Allocated resources).
+
+- id: trouble-q06
+  question: >-
+    A Service has endpoints, but connections to the ClusterIP time out while connections to the Pod IP work. What is the most likely broken component?
+  options:
+    - 'CoreDNS'
+    - 'kube-proxy (or the CNI/iptables rules it programs) on the client node'
+    - 'The EndpointSlice controller'
+    - 'etcd'
+  answer: 1
+  explanation: |
+    ClusterIP traffic is translated by kube-proxy rules. Check `kubectl -n kube-system get pods -l k8s-app=kube-proxy`
+    and its logs.
+
+- id: trouble-q07
+  question: >-
+    `kubectl exec` and `kubectl logs` fail with a timeout, but `kubectl get pods` works. What do they need that `get` does not?
+  options:
+    - 'etcd access'
+    - 'A connection from the API server to the kubelet (port 10250) on the node'
+    - 'CoreDNS'
+    - 'The scheduler'
+  answer: 1
+  explanation: |
+    logs, exec and port-forward are proxied by the API server to the kubelet API. A down kubelet or a blocked
+    10250 breaks them, while reads from etcd still work.
+
+- id: trouble-q08
+  question: >-
+    Which command lists containers on a node directly through the container runtime, including exited ones?
+  options:
+    - 'docker ps -a'
+    - 'crictl ps -a'
+    - 'kubectl get containers'
+    - 'ctr images ls'
+  answer: 1
+  explanation: |
+    crictl talks to the CRI socket (containerd here). It works even when the API server is down.
+
+- id: trouble-q09
+  question: >-
+    A Pod shows `ImagePullBackOff`. Which is NOT a possible cause?
+  options:
+    - 'A typo in the image tag'
+    - 'A missing imagePullSecret for a private registry'
+    - 'The container exits with code 1'
+    - 'The node cannot resolve or reach the registry'
+  answer: 2
+  explanation: |
+    An exiting container causes CrashLoopBackOff. Pull problems happen before the container starts;
+    the events in `kubectl describe pod` show the exact error.
+
+- id: trouble-q10
+  question: >-
+    Where are the cluster events stored, and for how long by default?
+  options:
+    - 'In the kubelet logs, forever'
+    - 'In etcd as Event objects, about 1 hour (--event-ttl)'
+    - 'In /var/log/events, 24 hours'
+    - 'They are not stored'
+  answer: 1
+  explanation: |
+    Events are API objects with a TTL set by the API server flag `--event-ttl` (default 1h). Sort them with
+    `kubectl get events --sort-by=.lastTimestamp`.

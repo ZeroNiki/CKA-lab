@@ -1,0 +1,47 @@
+id: trouble-04-kubelet
+title: Broken kubelet on a worker
+difficulty: hard
+ns: lab-kubelet
+requiresSnapshot: true
+statement: |
+  This task breaks a node. After Check (or Give up) the whole cluster is restored from the snapshot.
+
+  `node01` is `NotReady` (it may take up to a minute after Start). Connect with `./lab ssh node01`,
+  find out why the kubelet does not run and fix it **permanently** (it must survive a reboot).
+setup:
+  commands:
+    - node: node01
+      run: |
+        set -e
+        sudo sed -i 's#/usr/bin/kubelet#/usr/local/bin/kubelet#' /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart kubelet || true
+checks:
+  - type: command
+    description: kubelet on node01 is active and enabled
+    node: node01
+    run: echo "$(systemctl is-active kubelet) $(systemctl is-enabled kubelet)"
+    stdout: {op: eq, value: active enabled}
+    retry: 30s
+  - type: resource
+    description: node01 is Ready
+    target: {apiVersion: v1, kind: Node, name: node01}
+    retry: 180s
+    assert:
+      - {path: '{.status.conditions[?(@.type=="Ready")].status}', op: eq, value: "True"}
+docs: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/kubelet-integration/
+solution: |
+  ./lab ssh node01
+  sudo systemctl status kubelet          # exited, status=203/EXEC
+  sudo journalctl -u kubelet -n 20       # Failed at step EXEC ... /usr/local/bin/kubelet: No such file
+  systemctl cat kubelet                  # the drop-in 10-kubeadm.conf points to the wrong binary
+  which kubelet                          # /usr/bin/kubelet
+  sudo sed -i 's#/usr/local/bin/kubelet#/usr/bin/kubelet#' /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+  sudo systemctl daemon-reload && sudo systemctl restart kubelet
+solutionNode: node01
+solutionScript: |
+  set -euo pipefail
+  sudo sed -i 's#/usr/local/bin/kubelet#/usr/bin/kubelet#' /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+  sudo systemctl daemon-reload
+  sudo systemctl enable kubelet
+  sudo systemctl restart kubelet
