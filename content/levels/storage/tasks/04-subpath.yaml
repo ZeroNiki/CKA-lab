@@ -1,0 +1,62 @@
+id: storage-04-subpath
+title: Replace one file with subPath
+difficulty: hard
+ns: lab-subpath
+statement: |
+  In namespace `lab-subpath` there is a ConfigMap `nginx-conf` with key `default.conf`.
+
+  Create a Pod `web` (image `nginx:1.27-alpine`) so that:
+  - **only** the file `/etc/nginx/conf.d/default.conf` is replaced by the ConfigMap key
+    (other files in `/etc/nginx/conf.d/` and the rest of the image stay untouched),
+  - the mount is read-only.
+
+  `wget -qO- localhost` inside the Pod must return `lab ok`.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: nginx-conf
+      data:
+        default.conf: |
+          server {
+            listen 80;
+            location / { return 200 'lab ok'; }
+          }
+checks:
+  - type: resource
+    description: The ConfigMap is mounted with subPath default.conf, read-only
+    target: {apiVersion: v1, kind: Pod, name: web}
+    assert:
+      - {path: '{.spec.containers[0].volumeMounts[?(@.mountPath=="/etc/nginx/conf.d/default.conf")].subPath}', op: eq, value: default.conf}
+      - {path: '{.spec.containers[0].volumeMounts[?(@.mountPath=="/etc/nginx/conf.d/default.conf")].readOnly}', op: eq, value: "true"}
+      - {path: "{.spec.volumes[*].configMap.name}", op: eq, value: nginx-conf}
+  - type: command
+    description: nginx answers lab ok
+    run: kubectl -n lab-subpath exec web -- wget -qO- localhost
+    stdout: {op: eq, value: lab ok}
+    retry: 90s
+docs: https://kubernetes.io/docs/concepts/storage/volumes/#using-subpath
+solution: |
+  # volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true}]
+  # volumes: [{name: conf, configMap: {name: nginx-conf}}]
+  # Without subPath the whole conf.d directory would be replaced.
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-subpath apply -f - <<'EOF'
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: web
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        volumeMounts:
+          - {name: conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true}
+    volumes:
+      - name: conf
+        configMap: {name: nginx-conf}
+  EOF
+  kubectl -n lab-subpath wait --for=condition=Ready pod/web --timeout=120s

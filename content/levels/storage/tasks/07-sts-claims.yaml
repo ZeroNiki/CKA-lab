@@ -1,0 +1,89 @@
+id: storage-07-sts-claims
+title: StatefulSet claims and retention policy
+difficulty: hard
+ns: lab-stsclaims
+statement: |
+  In namespace `lab-stsclaims` create a headless Service `web` and a StatefulSet `web`
+  (2 replicas, image `nginx:1.27-alpine`, Pod label `app=web`) where:
+
+  - each replica gets its own `100Mi` `ReadWriteOnce` volume from class `local-path`
+    via a claim template named `data`, mounted at `/usr/share/nginx/html`;
+  - when the StatefulSet is **deleted**, its claims are deleted too;
+  - when the StatefulSet is **scaled down**, the claims are kept.
+
+  Both claims must be Bound.
+checks:
+  - type: resource
+    description: volumeClaimTemplate data, 100Mi from local-path
+    target: {apiVersion: apps/v1, kind: StatefulSet, name: web}
+    assert:
+      - {path: "{.spec.volumeClaimTemplates[0].metadata.name}", op: eq, value: data}
+      - {path: "{.spec.volumeClaimTemplates[0].spec.storageClassName}", op: eq, value: local-path}
+      - {path: "{.spec.volumeClaimTemplates[0].spec.resources.requests.storage}", op: eq, value: 100Mi}
+  - type: resource
+    description: Retention policy whenDeleted=Delete, whenScaled=Retain
+    target: {apiVersion: apps/v1, kind: StatefulSet, name: web}
+    assert:
+      - {path: "{.spec.persistentVolumeClaimRetentionPolicy.whenDeleted}", op: eq, value: Delete}
+      - {path: "{.spec.persistentVolumeClaimRetentionPolicy.whenScaled}", op: eq, value: Retain}
+  - type: resource
+    description: Claims data-web-0 and data-web-1 are Bound
+    target: {apiVersion: v1, kind: PersistentVolumeClaim, labelSelector: app=web}
+    retry: 180s
+    assert:
+      - {op: count, value: "2"}
+      - {path: "{.status.phase}", op: eq, value: Bound}
+  - type: command
+    description: Claim names follow <template>-<statefulset>-<ordinal>
+    run: kubectl -n lab-stsclaims get pvc data-web-0 data-web-1 -o name | wc -l
+    stdout: {op: eq, value: "2"}
+docs: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#persistentvolumeclaim-retention
+solution: |
+  # spec:
+  #   persistentVolumeClaimRetentionPolicy: {whenDeleted: Delete, whenScaled: Retain}
+  #   volumeClaimTemplates:
+  #     - metadata: {name: data}
+  #       spec: {storageClassName: local-path, accessModes: [ReadWriteOnce], resources: {requests: {storage: 100Mi}}}
+  # PVCs inherit the Pod template labels (app=web).
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-stsclaims apply -f - <<'EOF'
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: web
+  spec:
+    clusterIP: None
+    selector: {app: web}
+    ports: [{port: 80}]
+  ---
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    name: web
+  spec:
+    serviceName: web
+    replicas: 2
+    selector:
+      matchLabels: {app: web}
+    persistentVolumeClaimRetentionPolicy:
+      whenDeleted: Delete
+      whenScaled: Retain
+    template:
+      metadata:
+        labels: {app: web}
+      spec:
+        containers:
+          - name: nginx
+            image: nginx:1.27-alpine
+            volumeMounts: [{name: data, mountPath: /usr/share/nginx/html}]
+    volumeClaimTemplates:
+      - metadata:
+          name: data
+        spec:
+          storageClassName: local-path
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: {storage: 100Mi}
+  EOF
+  kubectl -n lab-stsclaims rollout status statefulset web --timeout=240s

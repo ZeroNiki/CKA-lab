@@ -1,0 +1,127 @@
+- id: storage-q01
+  question: >-
+    A PVC asks for `500Mi`, `ReadWriteOnce`, `storageClassName: manual`. Two PVs exist with class `manual` and RWO: one of 1Gi and one of 10Gi. Which PV is bound?
+  options:
+    - 'The 10Gi one, the biggest is preferred'
+    - 'The 1Gi one, the smallest PV that satisfies the claim'
+    - 'Either, it is random'
+    - 'None, the size must match exactly'
+  answer: 1
+  explanation: |
+    The binder picks the smallest matching PV. The PVC then reports the PV's full capacity (1Gi).
+
+- id: storage-q02
+  question: >-
+    A PV with `persistentVolumeReclaimPolicy: Retain` was bound to a PVC that has now been deleted. What is the PV's phase and why can a new PVC not bind to it?
+  options:
+    - 'Available; it binds automatically'
+    - 'Released; `spec.claimRef` still points to the deleted claim'
+    - 'Failed; Retain volumes cannot be reused'
+    - 'Pending; it waits for the old PVC to come back'
+  answer: 1
+  explanation: |
+    Released PVs keep the old claimRef (and the data). An admin must clean the data and remove or reset
+    `spec.claimRef` to make it Available again.
+
+- id: storage-q03
+  question: >-
+    What does `volumeBindingMode: WaitForFirstConsumer` change?
+  options:
+    - 'The PVC is never bound'
+    - 'Binding and provisioning wait until a Pod using the PVC is scheduled, so topology (node) is taken into account'
+    - 'The PV is deleted when the first Pod finishes'
+    - 'Only one Pod can ever use the volume'
+  answer: 1
+  explanation: |
+    Without it (Immediate), a volume might be provisioned on a node or zone where the Pod cannot run.
+    With it, the PVC stays Pending until a consumer Pod exists.
+
+- id: storage-q04
+  question: >-
+    Which access mode allows a volume to be mounted read-write by Pods on many nodes at once?
+  options:
+    - 'ReadWriteOnce'
+    - 'ReadOnlyMany'
+    - 'ReadWriteMany'
+    - 'ReadWriteOncePod'
+  answer: 2
+  explanation: |
+    RWX = many nodes read-write (NFS, CephFS...). RWO = one node (several Pods on that node may share it).
+    RWOP = exactly one Pod.
+
+- id: storage-q05
+  question: >-
+    You mount a ConfigMap key with `subPath: nginx.conf`. The ConfigMap is updated. What happens to the file in the running container?
+  options:
+    - 'It is updated after the kubelet sync period'
+    - 'It is never updated; subPath mounts do not receive ConfigMap updates'
+    - 'The container restarts with the new file'
+    - 'The Pod is evicted'
+  answer: 1
+  explanation: |
+    subPath bind-mounts a single file at Pod start. Updates arrive only in full-directory ConfigMap mounts.
+
+- id: storage-q06
+  question: >-
+    A `local` PersistentVolume must have which field, otherwise it is rejected?
+  options:
+    - 'spec.hostPath'
+    - 'spec.nodeAffinity'
+    - 'spec.claimRef'
+    - 'spec.mountOptions'
+  answer: 1
+  explanation: |
+    A local volume exists on one node, so the PV must declare `nodeAffinity`. The scheduler then places
+    consumer Pods on that node.
+
+- id: storage-q07
+  question: >-
+    What is the default reclaim policy of a dynamically provisioned PV?
+  options:
+    - 'Retain'
+    - 'Recycle'
+    - 'The StorageClass `reclaimPolicy`, which defaults to Delete'
+    - 'Delete, and it cannot be changed'
+  answer: 2
+  explanation: |
+    Dynamically provisioned PVs take the reclaim policy of their StorageClass (default Delete). You can
+    change it on the PV afterwards with `kubectl patch pv`.
+
+- id: storage-q08
+  question: >-
+    How is a native sidecar container declared in Kubernetes 1.29+?
+  options:
+    - 'A container with `sidecar: true`'
+    - 'An entry in `initContainers` with `restartPolicy: Always`'
+    - 'A second entry in `containers` with the annotation `sidecar`'
+    - 'A container in `ephemeralContainers`'
+  answer: 1
+  explanation: |
+    Init containers with `restartPolicy: Always` start before the main containers, keep running, and are
+    stopped after them.
+
+- id: storage-q09
+  question: >-
+    A StatefulSet `web` has a volumeClaimTemplate named `data`. What is the PVC name of replica 1, and what happens to it by default when the StatefulSet is deleted?
+  options:
+    - 'web-data-1; it is deleted'
+    - 'data-web-1; it is kept'
+    - 'data-1; it is kept'
+    - 'web-1-data; it is deleted'
+  answer: 1
+  explanation: |
+    PVCs are named `<template>-<statefulset>-<ordinal>`. `persistentVolumeClaimRetentionPolicy` defaults to
+    Retain for both whenDeleted and whenScaled.
+
+- id: storage-q10
+  question: >-
+    What does `emptyDir.medium: Memory` do?
+  options:
+    - 'Caches files in memory but stores them on disk'
+    - 'Mounts a tmpfs; its usage counts toward the container memory limit'
+    - 'Limits the volume size to the node free memory and ignores sizeLimit'
+    - 'It is not a valid value'
+  answer: 1
+  explanation: |
+    The volume is backed by tmpfs (RAM). Data written there counts as the container's memory, and is lost
+    when the Pod leaves the node.

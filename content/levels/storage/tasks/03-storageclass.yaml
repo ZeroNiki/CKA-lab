@@ -1,0 +1,83 @@
+id: storage-03-storageclass
+title: StorageClass with delayed binding
+difficulty: hard
+ns: lab-sc
+statement: |
+  1. Create a StorageClass `fast` that uses the provisioner `rancher.io/local-path`,
+     deletes volumes when claims are deleted, and **delays binding until a Pod uses the claim**.
+     It must not be the default class.
+  2. In namespace `lab-sc` create a PVC `cache` (`1Gi`, `ReadWriteOnce`) from class `fast`.
+  3. Create a Deployment `writer` (1 replica, image `busybox:1.36`) mounting the claim at `/data`
+     whose container runs: `sh -c 'echo hello > /data/hello.txt && sleep 3600'`.
+setup:
+  commands:
+    - run: kubectl delete storageclass fast --ignore-not-found
+checks:
+  - type: resource
+    description: StorageClass fast uses local-path, Delete, WaitForFirstConsumer
+    target: {apiVersion: storage.k8s.io/v1, kind: StorageClass, name: fast}
+    assert:
+      - {path: "{.provisioner}", op: eq, value: rancher.io/local-path}
+      - {path: "{.reclaimPolicy}", op: eq, value: Delete}
+      - {path: "{.volumeBindingMode}", op: eq, value: WaitForFirstConsumer}
+      - {path: '{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}', op: ne, value: "true"}
+  - type: resource
+    description: PVC cache from class fast is Bound
+    target: {apiVersion: v1, kind: PersistentVolumeClaim, name: cache}
+    retry: 120s
+    assert:
+      - {path: "{.spec.storageClassName}", op: eq, value: fast}
+      - {path: "{.status.phase}", op: eq, value: Bound}
+  - type: command
+    description: /data/hello.txt in the writer Pod contains hello
+    run: kubectl -n lab-sc exec deploy/writer -- cat /data/hello.txt
+    stdout: {op: eq, value: hello}
+    retry: 120s
+docs: https://kubernetes.io/docs/concepts/storage/storage-classes/#volume-binding-mode
+solution: |
+  # StorageClass: provisioner: rancher.io/local-path, reclaimPolicy: Delete,
+  #               volumeBindingMode: WaitForFirstConsumer
+  # The PVC stays Pending until the writer Pod is scheduled — that is expected.
+solutionScript: |
+  set -euo pipefail
+  kubectl apply -f - <<'EOF'
+  apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    name: fast
+  provisioner: rancher.io/local-path
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+  EOF
+  kubectl -n lab-sc apply -f - <<'EOF'
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: cache
+  spec:
+    storageClassName: fast
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests: {storage: 1Gi}
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: writer
+  spec:
+    selector:
+      matchLabels: {app: writer}
+    template:
+      metadata:
+        labels: {app: writer}
+      spec:
+        containers:
+          - name: busybox
+            image: busybox:1.36
+            command: ["sh", "-c", "echo hello > /data/hello.txt && sleep 3600"]
+            volumeMounts: [{name: data, mountPath: /data}]
+        volumes:
+          - name: data
+            persistentVolumeClaim: {claimName: cache}
+  EOF
+  kubectl -n lab-sc rollout status deployment writer --timeout=180s

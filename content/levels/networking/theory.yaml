@@ -2,10 +2,10 @@
   question: >-
     A Service has `port: 8080` and `targetPort: http`. What does `targetPort: http` refer to?
   options:
-    - The name of a port in the Service spec
-    - The name of a containerPort in the selected Pods
-    - The HTTP protocol, so traffic is proxied as HTTP
-    - The nodePort assigned to the Service
+    - 'The name of a port in the Service spec'
+    - 'The name of a containerPort in the selected Pods'
+    - 'The HTTP protocol, so traffic is proxied as HTTP'
+    - 'The nodePort assigned to the Service'
   answer: 1
   explanation: |
     A string targetPort is looked up by name in each Pod's `containerPort` list. Different Pods may map
@@ -15,10 +15,10 @@
   question: >-
     What DNS name resolves to a single Pod `db-0` of a StatefulSet whose `serviceName` is the headless Service `db` in namespace `prod`?
   options:
-    - db-0.prod.svc.cluster.local
-    - db-0.db.prod.svc.cluster.local
-    - db.db-0.prod.pod.cluster.local
-    - db-0.prod.pod.cluster.local
+    - 'db-0.prod.svc.cluster.local'
+    - 'db-0.db.prod.svc.cluster.local'
+    - 'db.db-0.prod.pod.cluster.local'
+    - 'db-0.prod.pod.cluster.local'
   answer: 1
   explanation: |
     StatefulSet Pods get stable records `<pod>.<service>.<namespace>.svc.<cluster-domain>` through the
@@ -28,9 +28,9 @@
   question: >-
     A namespace has NO NetworkPolicy at all. Then you create one policy that selects only Pods `app=api` with `policyTypes: [Ingress]` and an empty `ingress` list. What is the effect?
   options:
-    - All Pods in the namespace lose ingress traffic
-    - Only `app=api` Pods are isolated for ingress and accept nothing; other Pods are unaffected
-    - Nothing, an empty ingress list allows all
+    - 'All Pods in the namespace lose ingress traffic'
+    - 'Only `app=api` Pods are isolated for ingress and accept nothing; other Pods are unaffected'
+    - 'Nothing, an empty ingress list allows all'
     - '`app=api` Pods lose both ingress and egress'
   answer: 1
   explanation: |
@@ -41,10 +41,10 @@
   question: >-
     In a NetworkPolicy `from` list, what is the difference between one element with both `namespaceSelector` and `podSelector`, and two separate elements?
   options:
-    - No difference
-    - One element = AND (Pods matching podSelector inside matching namespaces); two elements = OR
-    - One element = OR; two elements = AND
-    - Two elements are invalid
+    - 'No difference'
+    - 'One element = AND (Pods matching podSelector inside matching namespaces); two elements = OR'
+    - 'One element = OR; two elements = AND'
+    - 'Two elements are invalid'
   answer: 1
   explanation: |
     Selectors inside one `from` item are combined with AND. Separate items are combined with OR.
@@ -54,10 +54,10 @@
   question: >-
     You add an egress NetworkPolicy that allows only TCP 80 to `app=api`. Calls to `http://api` now fail, but calls to the Pod IP work. Why?
   options:
-    - The Service has no endpoints
-    - DNS (UDP/TCP 53 to CoreDNS) is now blocked, so the name cannot be resolved
-    - Egress policies do not work with Services
-    - kube-proxy is blocked by the policy
+    - 'The Service has no endpoints'
+    - 'DNS (UDP/TCP 53 to CoreDNS) is now blocked, so the name cannot be resolved'
+    - 'Egress policies do not work with Services'
+    - 'kube-proxy is blocked by the policy'
   answer: 1
   explanation: |
     Once a Pod is isolated for egress, DNS must be allowed explicitly, usually to Pods
@@ -67,10 +67,10 @@
   question: >-
     Which resource defines WHICH controller implements Gateways in Gateway API?
   options:
-    - Gateway
-    - HTTPRoute
-    - GatewayClass
-    - IngressClass
+    - 'Gateway'
+    - 'HTTPRoute'
+    - 'GatewayClass'
+    - 'IngressClass'
   answer: 2
   explanation: |
     GatewayClass has `controllerName`. A Gateway references a class via `gatewayClassName`; routes attach
@@ -80,10 +80,10 @@
   question: >-
     An HTTPRoute has two `backendRefs` with `weight: 80` and `weight: 20`. What does the weight mean?
   options:
-    - Priority; the first backend is used until it fails
-    - The proportion of requests sent to each backend
-    - The maximum number of connections per backend
-    - The number of replicas to scale each backend to
+    - 'Priority; the first backend is used until it fails'
+    - 'The proportion of requests sent to each backend'
+    - 'The maximum number of connections per backend'
+    - 'The number of replicas to scale each backend to'
   answer: 1
   explanation: |
     Weights split traffic proportionally (here 80/20) between the backends of the same rule.
@@ -92,10 +92,10 @@
   question: >-
     What is the default `ndots` value in a Pod's /etc/resolv.conf in Kubernetes, and what does it mean?
   options:
-    - 1; names with at least 1 dot are tried as absolute first
-    - 5; names with fewer than 5 dots are first tried with the search domains
-    - 2; only two search domains are tried
-    - 0; search domains are never used
+    - '1; names with at least 1 dot are tried as absolute first'
+    - '5; names with fewer than 5 dots are first tried with the search domains'
+    - '2; only two search domains are tried'
+    - '0; search domains are never used'
   answer: 1
   explanation: |
     `options ndots:5` makes `api.prod` go through the search list (`<ns>.svc.cluster.local`, ...) before
@@ -105,10 +105,10 @@
   question: >-
     A Service of type NodePort is created without `nodePort`. Where does the port number come from?
   options:
-    - It equals `port`
-    - It equals `targetPort`
-    - It is allocated from the API server range `--service-node-port-range` (default 30000-32767)
-    - It is always 30080
+    - 'It equals `port`'
+    - 'It equals `targetPort`'
+    - 'It is allocated from the API server range `--service-node-port-range` (default 30000-32767)'
+    - 'It is always 30080'
   answer: 2
   explanation: |
     The API server allocates a free port from its node port range unless you set one explicitly.
@@ -117,10 +117,10 @@
   question: >-
     A Service selects Pods, but `kubectl get endpointslices -l kubernetes.io/service-name=<svc>` shows no endpoints. Which cause is the most likely?
   options:
-    - kube-proxy is not running
-    - The Service selector does not match the Pod labels (or the Pods are not Ready)
-    - CoreDNS is down
-    - The Service type is ClusterIP
+    - 'kube-proxy is not running'
+    - 'The Service selector does not match the Pod labels (or the Pods are not Ready)'
+    - 'CoreDNS is down'
+    - 'The Service type is ClusterIP'
   answer: 1
   explanation: |
     Endpoints are built by the EndpointSlice controller from Pods that match the selector. Not-Ready Pods

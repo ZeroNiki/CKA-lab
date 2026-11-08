@@ -1,0 +1,79 @@
+id: storage-02-retain
+title: Reuse a Released volume
+difficulty: medium
+ns: lab-retain
+statement: |
+  PersistentVolume `pv-data` (reclaim policy `Retain`) used to belong to a claim that was deleted.
+  It is now `Released` and holds important data.
+
+  In namespace `lab-retain` create a PVC `data` (class `manual`, `ReadWriteOnce`, `1Gi`) that binds
+  **to exactly this PV**. Do not delete or recreate the PV.
+setup:
+  commands:
+    - run: |
+        set -e
+        kubectl delete pv pv-data --ignore-not-found --wait=true --timeout=60s
+        kubectl apply -f - <<'EOF'
+        apiVersion: v1
+        kind: PersistentVolume
+        metadata:
+          name: pv-data
+        spec:
+          capacity: {storage: 1Gi}
+          accessModes: [ReadWriteOnce]
+          persistentVolumeReclaimPolicy: Retain
+          storageClassName: manual
+          hostPath: {path: /mnt/lab/data}
+        EOF
+        kubectl -n lab-retain apply -f - <<'EOF'
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: old
+        spec:
+          storageClassName: manual
+          volumeName: pv-data
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: {storage: 1Gi}
+        EOF
+        kubectl -n lab-retain wait --for=jsonpath='{.status.phase}'=Bound pvc/old --timeout=60s
+        kubectl -n lab-retain delete pvc old --wait=true
+        kubectl wait --for=jsonpath='{.status.phase}'=Released pv/pv-data --timeout=60s
+checks:
+  - type: resource
+    description: PV pv-data still has reclaim policy Retain and is Bound to lab-retain/data
+    target: {apiVersion: v1, kind: PersistentVolume, name: pv-data}
+    retry: 60s
+    assert:
+      - {path: "{.spec.persistentVolumeReclaimPolicy}", op: eq, value: Retain}
+      - {path: "{.status.phase}", op: eq, value: Bound}
+      - {path: "{.spec.claimRef.name}", op: eq, value: data}
+      - {path: "{.spec.claimRef.namespace}", op: eq, value: lab-retain}
+  - type: resource
+    description: PVC data is Bound to pv-data
+    target: {apiVersion: v1, kind: PersistentVolumeClaim, name: data}
+    retry: 60s
+    assert:
+      - {path: "{.status.phase}", op: eq, value: Bound}
+      - {path: "{.spec.volumeName}", op: eq, value: pv-data}
+docs: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#retain
+solution: |
+  # A Released PV keeps spec.claimRef of the deleted claim. Remove it:
+  kubectl patch pv pv-data --type json -p '[{"op":"remove","path":"/spec/claimRef"}]'
+  # Then create the PVC; spec.volumeName: pv-data pins it to this PV.
+solutionScript: |
+  set -euo pipefail
+  kubectl patch pv pv-data --type json -p '[{"op":"remove","path":"/spec/claimRef"}]'
+  kubectl -n lab-retain apply -f - <<'EOF'
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: data
+  spec:
+    storageClassName: manual
+    volumeName: pv-data
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests: {storage: 1Gi}
+  EOF
