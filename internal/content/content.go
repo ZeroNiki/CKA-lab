@@ -42,6 +42,7 @@ type Task struct {
 	Docs             string       `json:"docs"`
 	Solution         string       `json:"solution"`
 	SolutionScript   string       `json:"solutionScript"`
+	SolutionNode     string       `json:"solutionNode,omitempty"` // where solutionScript runs, default "controlplane"
 	Source           string       `json:"source,omitempty"`
 
 	LevelID string `json:"-"` // set by Load
@@ -155,6 +156,9 @@ func loadLevel(root, dir string) (*Level, error) {
 		}
 		t.LevelID = lvl.ID
 		t.File = rel(root, f)
+		if t.SolutionNode == "" {
+			t.SolutionNode = defaultNode
+		}
 		for i := range t.Setup.Commands {
 			if t.Setup.Commands[i].Node == "" {
 				t.Setup.Commands[i].Node = defaultNode

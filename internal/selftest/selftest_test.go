@@ -101,3 +101,13 @@ func TestOrder_SnapshotLast(t *testing.T) {
 		t.Fatalf("order = %s %s %s", got[0].ID, got[1].ID, got[2].ID)
 	}
 }
+
+func TestRunTask_SolutionNode(t *testing.T) {
+	w := &world{}
+	tk := task(false)
+	tk.SolutionNode = "node01"
+	RunTask(context.Background(), w.deps(), tk)
+	if w.scriptsSeen[0] != "node01|kubectl create ns x" {
+		t.Fatalf("scripts = %v", w.scriptsSeen)
+	}
+}

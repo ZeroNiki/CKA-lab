@@ -49,7 +49,11 @@ func RunTask(ctx context.Context, d Deps, t *content.Task) (r Report) {
 	}
 	r.FailedBeforeSolution = !allPass(before)
 
-	out, code, err := d.Exec.Run(ctx, "controlplane", t.SolutionScript)
+	node := t.SolutionNode
+	if node == "" {
+		node = "controlplane"
+	}
+	out, code, err := d.Exec.Run(ctx, node, t.SolutionScript)
 	if err != nil {
 		r.Err = fmt.Errorf("solutionScript: %w", err)
 		return r

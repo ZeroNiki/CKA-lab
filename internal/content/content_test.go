@@ -56,6 +56,9 @@ func TestLoad_Valid(t *testing.T) {
 	if task.Checks[0].Target.Kind != "ConfigMap" || len(task.Setup.Manifests) != 1 {
 		t.Fatalf("task decoded wrong: %+v", task)
 	}
+	if task.SolutionNode != "controlplane" {
+		t.Fatalf("solutionNode should default to controlplane, got %q", task.SolutionNode)
+	}
 	if task.Setup.Commands[0].Node != "controlplane" {
 		t.Fatalf("setup command node should default to controlplane, got %q", task.Setup.Commands[0].Node)
 	}
