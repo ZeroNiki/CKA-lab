@@ -1,0 +1,130 @@
+- id: arch-q01
+  question: >-
+    A RoleBinding in namespace `dev` references a ClusterRole `edit`. What can the subject do?
+  options:
+    - 'Everything `edit` allows, in all namespaces'
+    - 'Everything `edit` allows, but only in namespace `dev`'
+    - 'Nothing, a RoleBinding cannot reference a ClusterRole'
+    - 'Only read access in `dev`'
+  answer: 1
+  explanation: |
+    A RoleBinding grants the referenced rules in its own namespace only. This is the usual way to reuse a
+    ClusterRole per namespace. A ClusterRoleBinding would grant cluster-wide.
+
+- id: arch-q02
+  question: >-
+    Which username does the API server use for ServiceAccount `deployer` in namespace `ci`?
+  options:
+    - 'deployer'
+    - 'ci:deployer'
+    - 'system:serviceaccount:ci:deployer'
+    - 'serviceaccount/ci/deployer'
+  answer: 2
+  explanation: |
+    ServiceAccount tokens authenticate as `system:serviceaccount:<ns>:<name>` with groups
+    `system:serviceaccounts` and `system:serviceaccounts:<ns>`. Use it with
+    `kubectl auth can-i --as=system:serviceaccount:ci:deployer`.
+
+- id: arch-q03
+  question: >-
+    What does an `aggregationRule` on a ClusterRole do?
+  options:
+    - 'Merges all RoleBindings that reference it'
+    - 'The controller fills its rules with the rules of ClusterRoles matching the label selectors'
+    - 'Grants the union of permissions of all users in a group'
+    - 'Combines several namespaces into one'
+  answer: 1
+  explanation: |
+    The clusterrole-aggregation controller overwrites `rules` of the aggregated ClusterRole. The built-in
+    `admin`, `edit` and `view` roles use this for CRDs.
+
+- id: arch-q04
+  question: >-
+    A container sets `runAsNonRoot: true` but its image runs as user 0 and `runAsUser` is not set. What happens?
+  options:
+    - 'The container runs as root anyway'
+    - 'The kubelet refuses to start the container (CreateContainerConfigError)'
+    - 'The kubelet picks user 65534'
+    - 'The Pod is rejected by the API server'
+  answer: 1
+  explanation: |
+    runAsNonRoot is verified by the kubelet at container start against the effective UID. With UID 0 the
+    container fails with "container has runAsNonRoot and image will run as root".
+
+- id: arch-q05
+  question: >-
+    Which etcdctl flags are required to take a snapshot of the kubeadm etcd from the control-plane node?
+  options:
+    - '--endpoints only'
+    - '--cacert, --cert, --key (and --endpoints https://127.0.0.1:2379)'
+    - '--data-dir and --name'
+    - '--kubeconfig'
+  answer: 1
+  explanation: |
+    kubeadm etcd requires client TLS. The files are in /etc/kubernetes/pki/etcd/ (ca.crt, server.crt or
+    healthcheck-client.crt, and the matching key). Look them up in /etc/kubernetes/manifests/etcd.yaml.
+
+- id: arch-q06
+  question: >-
+    After `etcdutl snapshot restore backup.db --data-dir /var/lib/etcd-restored`, how do you make the kubeadm etcd use it?
+  options:
+    - 'Restart the kubelet'
+    - 'Point the etcd static Pod hostPath volume (or --data-dir) to the new directory in /etc/kubernetes/manifests/etcd.yaml'
+    - 'Run kubeadm init again'
+    - 'Copy backup.db into /var/lib/etcd/member'
+  answer: 1
+  explanation: |
+    Restore creates a new data directory. Editing the static Pod manifest makes the kubelet recreate etcd
+    with it. Changing only the hostPath keeps the in-container path the same.
+
+- id: arch-q07
+  question: >-
+    What is the correct order to upgrade a kubeadm control-plane node?
+  options:
+    - 'kubelet, kubeadm, kubeadm upgrade apply'
+    - 'kubeadm package, kubeadm upgrade plan/apply, drain, kubelet+kubectl packages, restart kubelet, uncordon'
+    - 'kubeadm upgrade apply, then kubeadm package'
+    - 'drain all nodes, then kubeadm upgrade apply on each'
+  answer: 1
+  explanation: |
+    First upgrade the kubeadm binary, apply the control-plane upgrade, then drain and upgrade kubelet/kubectl,
+    restart kubelet and uncordon. Workers use `kubeadm upgrade node`.
+
+- id: arch-q08
+  question: >-
+    `helm upgrade shop ./chart --set replicaCount=3` is run without `--reuse-values`. What happens to values set with `--set` in the previous release?
+  options:
+    - 'They are kept automatically'
+    - 'They are reset to the chart defaults unless passed again (or --reuse-values / --reset-then-reuse-values is used)'
+    - 'Helm refuses to upgrade'
+    - 'They are merged with the new values from the chart'
+  answer: 1
+  explanation: |
+    By default an upgrade starts from the chart defaults plus the values given on this command.
+    `helm get values shop` shows what was set before.
+
+- id: arch-q09
+  question: >-
+    In Kustomize, what does `images: [{name: nginx, newTag: "1.27-alpine"}]` do?
+  options:
+    - 'Adds a new container named nginx'
+    - 'Replaces the tag of every container image named nginx in the resources'
+    - 'Pulls the image to the nodes'
+    - 'Creates an ImagePullSecret'
+  answer: 1
+  explanation: |
+    The images transformer rewrites image references by name, without patching each Deployment.
+    Apply with `kubectl apply -k <dir>`.
+
+- id: arch-q10
+  question: >-
+    A CRD defines `spec.retention` with `type: integer, minimum: 1`. A user creates a resource with `retention: 0`. Who rejects it?
+  options:
+    - 'Nobody, CRDs do not validate'
+    - 'The API server, using the OpenAPI v3 schema of the CRD version'
+    - 'The custom controller, later'
+    - 'etcd'
+  answer: 1
+  explanation: |
+    `apiextensions.k8s.io/v1` CRDs require a structural schema, and the API server validates objects
+    against it on create and update.

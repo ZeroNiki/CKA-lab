@@ -1,0 +1,71 @@
+id: arch-02-clusterrole
+title: Aggregated ClusterRole for a group
+difficulty: medium
+ns: lab-crole
+statement: |
+  1. Create a ClusterRole `lab-monitoring` whose rules are **aggregated automatically** from every
+     ClusterRole that carries the label `rbac.lab.io/aggregate-to-monitoring: "true"`.
+  2. Create a ClusterRole `lab-node-reader` with `get, list, watch` on Nodes, labeled so that it is
+     aggregated into `lab-monitoring`.
+  3. Bind `lab-monitoring` cluster-wide to the group `ops` with ClusterRoleBinding `ops-monitoring`.
+
+  Members of `ops` can list nodes but cannot delete them.
+setup:
+  commands:
+    - run: |
+        kubectl delete clusterrolebinding ops-monitoring --ignore-not-found
+        kubectl delete clusterrole lab-monitoring lab-node-reader --ignore-not-found
+checks:
+  - type: resource
+    description: lab-monitoring has an aggregationRule on the label
+    target: {apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole, name: lab-monitoring}
+    assert:
+      - {path: '{.aggregationRule.clusterRoleSelectors[*].matchLabels.rbac\.lab\.io/aggregate-to-monitoring}', op: eq, value: "true"}
+  - type: resource
+    description: lab-monitoring received the node rules by aggregation
+    target: {apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole, name: lab-monitoring}
+    retry: 30s
+    assert:
+      - {path: "{.rules[*].resources}", op: contains, value: nodes}
+  - type: canI
+    description: group ops can list nodes
+    subject: {user: "ops-user", group: ops}
+    verb: list
+    resource: nodes
+  - type: canI
+    description: group ops cannot delete nodes
+    subject: {user: "ops-user", group: ops}
+    verb: delete
+    resource: nodes
+    allowed: false
+  - type: resource
+    description: ClusterRoleBinding ops-monitoring binds group ops to lab-monitoring
+    target: {apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRoleBinding, name: ops-monitoring}
+    assert:
+      - {path: "{.roleRef.name}", op: eq, value: lab-monitoring}
+      - {path: '{.subjects[?(@.kind=="Group")].name}', op: eq, value: ops}
+docs: https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles
+solution: |
+  # lab-monitoring:
+  #   aggregationRule:
+  #     clusterRoleSelectors: [{matchLabels: {rbac.lab.io/aggregate-to-monitoring: "true"}}]
+  #   rules: []        # filled by the controller
+  kubectl create clusterrole lab-node-reader --verb=get,list,watch --resource=nodes
+  kubectl label clusterrole lab-node-reader rbac.lab.io/aggregate-to-monitoring=true
+  kubectl create clusterrolebinding ops-monitoring --clusterrole=lab-monitoring --group=ops
+  kubectl auth can-i list nodes --as=someone --as-group=ops
+solutionScript: |
+  set -euo pipefail
+  kubectl apply -f - <<'EOF'
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: lab-monitoring
+  aggregationRule:
+    clusterRoleSelectors:
+      - matchLabels: {rbac.lab.io/aggregate-to-monitoring: "true"}
+  rules: []
+  EOF
+  kubectl create clusterrole lab-node-reader --verb=get,list,watch --resource=nodes
+  kubectl label clusterrole lab-node-reader rbac.lab.io/aggregate-to-monitoring=true
+  kubectl create clusterrolebinding ops-monitoring --clusterrole=lab-monitoring --group=ops

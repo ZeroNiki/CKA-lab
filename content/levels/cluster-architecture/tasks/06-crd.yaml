@@ -1,0 +1,89 @@
+id: arch-06-crd
+title: CustomResourceDefinition with validation
+difficulty: hard
+ns: lab-crd
+statement: |
+  1. Create a CRD for kind `Backup` in group `lab.example.com`, version `v1` (served and storage),
+     **namespaced**, plural `backups`, short name `bk`. Its schema:
+     - `spec.schedule`: string, required,
+     - `spec.retention`: integer, **minimum 1**.
+  2. In namespace `lab-crd` create a Backup `nightly` with schedule `0 2 * * *` and retention `7`.
+
+  A Backup with `retention: 0` must be rejected by the API server.
+setup:
+  commands:
+    - run: kubectl delete crd backups.lab.example.com --ignore-not-found --wait=true --timeout=60s
+checks:
+  - type: resource
+    description: CRD backups.lab.example.com is namespaced, v1, short name bk
+    target: {apiVersion: apiextensions.k8s.io/v1, kind: CustomResourceDefinition, name: backups.lab.example.com}
+    assert:
+      - {path: "{.spec.scope}", op: eq, value: Namespaced}
+      - {path: "{.spec.names.kind}", op: eq, value: Backup}
+      - {path: "{.spec.names.shortNames}", op: contains, value: bk}
+      - {path: '{.spec.versions[?(@.name=="v1")].storage}', op: eq, value: "true"}
+  - type: resource
+    description: Backup nightly has schedule "0 2 * * *" and retention 7
+    target: {apiVersion: lab.example.com/v1, kind: Backup, name: nightly}
+    assert:
+      - {path: "{.spec.schedule}", op: eq, value: "0 2 * * *"}
+      - {path: "{.spec.retention}", op: eq, value: "7"}
+  - type: command
+    description: retention 0 is rejected by the API server
+    run: |
+      printf 'apiVersion: lab.example.com/v1\nkind: Backup\nmetadata: {name: bad}\nspec: {schedule: "x", retention: 0}\n' |
+        kubectl -n lab-crd create --dry-run=server -f - >/dev/null 2>&1 && echo accepted || echo rejected
+    stdout: {op: eq, value: rejected}
+  - type: command
+    description: A Backup without schedule is rejected
+    run: |
+      printf 'apiVersion: lab.example.com/v1\nkind: Backup\nmetadata: {name: bad}\nspec: {retention: 3}\n' |
+        kubectl -n lab-crd create --dry-run=server -f - >/dev/null 2>&1 && echo accepted || echo rejected
+    stdout: {op: eq, value: rejected}
+docs: https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/
+solution: |
+  # versions[0].schema.openAPIV3Schema:
+  #   type: object
+  #   properties:
+  #     spec:
+  #       type: object
+  #       required: [schedule]
+  #       properties:
+  #         schedule: {type: string}
+  #         retention: {type: integer, minimum: 1}
+solutionScript: |
+  set -euo pipefail
+  kubectl apply -f - <<'EOF'
+  apiVersion: apiextensions.k8s.io/v1
+  kind: CustomResourceDefinition
+  metadata:
+    name: backups.lab.example.com
+  spec:
+    group: lab.example.com
+    scope: Namespaced
+    names: {kind: Backup, plural: backups, singular: backup, shortNames: [bk]}
+    versions:
+      - name: v1
+        served: true
+        storage: true
+        schema:
+          openAPIV3Schema:
+            type: object
+            properties:
+              spec:
+                type: object
+                required: [schedule]
+                properties:
+                  schedule: {type: string}
+                  retention: {type: integer, minimum: 1}
+  EOF
+  kubectl wait --for condition=established --timeout=60s crd/backups.lab.example.com
+  kubectl -n lab-crd apply -f - <<'EOF'
+  apiVersion: lab.example.com/v1
+  kind: Backup
+  metadata:
+    name: nightly
+  spec:
+    schedule: "0 2 * * *"
+    retention: 7
+  EOF

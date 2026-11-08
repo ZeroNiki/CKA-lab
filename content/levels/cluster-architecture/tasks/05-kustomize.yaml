@@ -1,0 +1,94 @@
+id: arch-05-kustomize
+title: Kustomize production overlay
+difficulty: hard
+ns: lab-kustomize
+statement: |
+  On the control plane, `/home/vagrant/kustomize/base` contains a Deployment `web` and a Service `web`.
+
+  Create an overlay in `/home/vagrant/kustomize/overlays/prod` that, **without changing the base**:
+  - deploys into namespace `lab-kustomize`,
+  - prefixes all names with `prod-`,
+  - adds the label `env=prod` to all resources,
+  - sets the Deployment to 3 replicas,
+  - changes the `nginx` image tag to `1.27-alpine`.
+
+  Apply the overlay.
+setup:
+  commands:
+    - run: |
+        rm -rf /home/vagrant/kustomize
+        mkdir -p /home/vagrant/kustomize/base
+        cat >/home/vagrant/kustomize/base/kustomization.yaml <<'EOF'
+        resources: [deployment.yaml, service.yaml]
+        EOF
+        cat >/home/vagrant/kustomize/base/deployment.yaml <<'EOF'
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: web
+        spec:
+          replicas: 1
+          selector:
+            matchLabels: {app: web}
+          template:
+            metadata:
+              labels: {app: web}
+            spec:
+              containers:
+                - name: nginx
+                  image: nginx:1.26-alpine
+        EOF
+        cat >/home/vagrant/kustomize/base/service.yaml <<'EOF'
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: web
+        spec:
+          selector: {app: web}
+          ports: [{port: 80}]
+        EOF
+checks:
+  - type: resource
+    description: Deployment prod-web has 3 replicas, label env=prod, image nginx:1.27-alpine
+    target: {apiVersion: apps/v1, kind: Deployment, name: prod-web}
+    assert:
+      - {path: "{.spec.replicas}", op: eq, value: "3"}
+      - {path: "{.metadata.labels.env}", op: eq, value: prod}
+      - {path: "{.spec.template.spec.containers[0].image}", op: eq, value: "nginx:1.27-alpine"}
+  - type: resource
+    description: Service prod-web exists with label env=prod
+    target: {apiVersion: v1, kind: Service, name: prod-web}
+    assert:
+      - {path: "{.metadata.labels.env}", op: eq, value: prod}
+  - type: command
+    description: The base is unchanged and the overlay builds
+    run: |
+      grep -q 'nginx:1.26-alpine' /home/vagrant/kustomize/base/deployment.yaml &&
+        grep -q 'replicas: 1' /home/vagrant/kustomize/base/deployment.yaml &&
+        kubectl kustomize /home/vagrant/kustomize/overlays/prod | grep -q 'name: prod-web' && echo ok
+    stdout: {op: eq, value: ok}
+docs: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+solution: |
+  # overlays/prod/kustomization.yaml
+  #   resources: [../../base]
+  #   namespace: lab-kustomize
+  #   namePrefix: prod-
+  #   labels: [{pairs: {env: prod}, includeSelectors: false}]
+  #   replicas: [{name: web, count: 3}]
+  #   images: [{name: nginx, newTag: 1.27-alpine}]
+  kubectl apply -k /home/vagrant/kustomize/overlays/prod
+solutionScript: |
+  set -euo pipefail
+  mkdir -p /home/vagrant/kustomize/overlays/prod
+  cat >/home/vagrant/kustomize/overlays/prod/kustomization.yaml <<'EOF'
+  resources: [../../base]
+  namespace: lab-kustomize
+  namePrefix: prod-
+  labels:
+    - pairs: {env: prod}
+  replicas:
+    - {name: web, count: 3}
+  images:
+    - {name: nginx, newTag: 1.27-alpine}
+  EOF
+  kubectl apply -k /home/vagrant/kustomize/overlays/prod

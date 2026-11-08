@@ -1,0 +1,82 @@
+id: arch-07-etcd
+title: etcd backup and restore
+difficulty: hard
+ns: lab-etcd
+requiresSnapshot: true
+statement: |
+  This task changes etcd. After Check (or Give up) the whole cluster is restored from the snapshot.
+
+  On the control plane:
+
+  1. Save an etcd snapshot to `/opt/lab/etcd-backup.db`.
+  2. **After** the backup, create a ConfigMap `after-backup` in namespace `lab-etcd`.
+  3. Restore the snapshot into the data directory `/var/lib/etcd-restored`
+     and make the running etcd use it.
+
+  When done, the cluster must be healthy again, ConfigMap `before-backup` must exist
+  and `after-backup` must be gone.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: before-backup
+      data: {created: by-setup}
+  commands:
+    - run: sudo rm -rf /opt/lab/etcd-backup.db
+checks:
+  - type: command
+    description: /opt/lab/etcd-backup.db is a valid etcd snapshot
+    run: sudo etcdutl snapshot status /opt/lab/etcd-backup.db >/dev/null 2>&1 && echo valid
+    stdout: {op: eq, value: valid}
+  - type: command
+    description: etcd static Pod uses /var/lib/etcd-restored
+    run: sudo grep -q '/var/lib/etcd-restored' /etc/kubernetes/manifests/etcd.yaml && echo yes
+    stdout: {op: eq, value: "yes"}
+  - type: command
+    description: The API server is ready
+    run: kubectl get --raw /readyz
+    stdout: {op: eq, value: ok}
+    retry: 180s
+  - type: resource
+    description: ConfigMap before-backup exists
+    target: {apiVersion: v1, kind: ConfigMap, name: before-backup}
+  - type: resource
+    description: ConfigMap after-backup is gone (state is from the backup)
+    target: {apiVersion: v1, kind: ConfigMap, name: after-backup}
+    assert:
+      - {op: notExists}
+docs: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#restoring-an-etcd-cluster
+solution: |
+  # certificates and endpoint: see /etc/kubernetes/manifests/etcd.yaml
+  sudo mkdir -p /opt/lab
+  sudo etcdctl --endpoints=https://127.0.0.1:2379 \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+    --cert=/etc/kubernetes/pki/etcd/server.crt \
+    --key=/etc/kubernetes/pki/etcd/server.key \
+    snapshot save /opt/lab/etcd-backup.db
+  kubectl -n lab-etcd create configmap after-backup
+  sudo etcdutl snapshot restore /opt/lab/etcd-backup.db --data-dir /var/lib/etcd-restored
+  # in /etc/kubernetes/manifests/etcd.yaml change the etcd-data hostPath to /var/lib/etcd-restored
+  # wait until the API answers again: kubectl get --raw /readyz
+solutionScript: |
+  set -euo pipefail
+  sudo mkdir -p /opt/lab
+  sudo etcdctl --endpoints=https://127.0.0.1:2379 \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+    --cert=/etc/kubernetes/pki/etcd/server.crt \
+    --key=/etc/kubernetes/pki/etcd/server.key \
+    snapshot save /opt/lab/etcd-backup.db
+  kubectl -n lab-etcd create configmap after-backup
+  sudo rm -rf /var/lib/etcd-restored
+  sudo etcdutl snapshot restore /opt/lab/etcd-backup.db --data-dir /var/lib/etcd-restored
+  sudo sed -i 's#path: /var/lib/etcd$#path: /var/lib/etcd-restored#' /etc/kubernetes/manifests/etcd.yaml
+  for _ in $(seq 1 60); do
+    sleep 5
+    if kubectl get --raw /readyz >/dev/null 2>&1 && ! kubectl -n lab-etcd get configmap after-backup >/dev/null 2>&1; then
+      exit 0
+    fi
+  done
+  echo "API did not come back with restored data" >&2
+  exit 1

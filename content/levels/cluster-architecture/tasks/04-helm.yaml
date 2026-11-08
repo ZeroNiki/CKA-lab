@@ -1,0 +1,50 @@
+id: arch-04-helm
+title: Helm install and upgrade with values
+difficulty: hard
+ns: lab-helm
+statement: |
+  A chart is available on the control plane at `/home/vagrant/charts/webapp`.
+
+  1. Install it as release `shop` into namespace `lab-helm` with **2 replicas**
+     and Service type **NodePort**, without editing the chart files.
+  2. Upgrade the release so the image tag becomes `1.27-alpine`,
+     **keeping** the values from step 1.
+
+  The release must be at revision 2 and all Pods Ready.
+setup:
+  commands:
+    - run: |
+        rm -rf /home/vagrant/charts/webapp
+        mkdir -p /home/vagrant/charts
+        helm create /home/vagrant/charts/webapp >/dev/null
+checks:
+  - type: command
+    description: Release shop is deployed at revision 2
+    run: helm -n lab-helm status shop -o json | jq -r '"\(.info.status) \(.version)"'
+    stdout: {op: eq, value: deployed 2}
+  - type: command
+    description: Release values keep replicaCount 2 and service.type NodePort, image.tag 1.27-alpine
+    run: helm -n lab-helm get values shop -o json | jq -r '"\(.replicaCount) \(.service.type) \(.image.tag)"'
+    stdout: {op: eq, value: 2 NodePort 1.27-alpine}
+  - type: resource
+    description: Deployment of the release runs nginx:1.27-alpine with 2 ready replicas
+    target: {apiVersion: apps/v1, kind: Deployment, labelSelector: app.kubernetes.io/instance=shop}
+    retry: 120s
+    assert:
+      - {op: count, value: "1"}
+      - {path: "{.spec.template.spec.containers[0].image}", op: eq, value: "nginx:1.27-alpine"}
+      - {path: "{.status.readyReplicas}", op: eq, value: "2"}
+  - type: resource
+    description: Service of the release is NodePort
+    target: {apiVersion: v1, kind: Service, labelSelector: app.kubernetes.io/instance=shop}
+    assert:
+      - {path: "{.spec.type}", op: eq, value: NodePort}
+docs: https://helm.sh/docs/helm/helm_upgrade/
+solution: |
+  helm install shop /home/vagrant/charts/webapp -n lab-helm --set replicaCount=2 --set service.type=NodePort
+  helm upgrade shop /home/vagrant/charts/webapp -n lab-helm --reuse-values --set image.tag=1.27-alpine
+  helm -n lab-helm history shop
+solutionScript: |
+  set -euo pipefail
+  helm install shop /home/vagrant/charts/webapp -n lab-helm --set replicaCount=2 --set service.type=NodePort --wait --timeout 3m
+  helm upgrade shop /home/vagrant/charts/webapp -n lab-helm --reuse-values --set image.tag=1.27-alpine --wait --timeout 3m

@@ -1,0 +1,68 @@
+id: arch-01-rbac-sa
+title: Least privilege for a ServiceAccount
+difficulty: medium
+ns: lab-rbac
+statement: |
+  In namespace `lab-rbac`:
+
+  1. Create a ServiceAccount `deployer`.
+  2. Create a Role `deploy-manager` that allows `get, list, watch, create, update, patch, delete`
+     on Deployments, and only `get, list` on Pods.
+  3. Bind the Role to the ServiceAccount with RoleBinding `deployer-binding`.
+
+  The ServiceAccount must not get any rights outside `lab-rbac`.
+checks:
+  - type: canI
+    description: deployer can create deployments in lab-rbac
+    subject: {serviceAccount: "lab-rbac:deployer"}
+    verb: create
+    resource: deployments.apps
+  - type: canI
+    description: deployer can list pods in lab-rbac
+    subject: {serviceAccount: "lab-rbac:deployer"}
+    verb: list
+    resource: pods
+  - type: canI
+    description: deployer cannot delete pods
+    subject: {serviceAccount: "lab-rbac:deployer"}
+    verb: delete
+    resource: pods
+    allowed: false
+  - type: canI
+    description: deployer cannot create deployments in default
+    subject: {serviceAccount: "lab-rbac:deployer"}
+    verb: create
+    resource: deployments.apps
+    namespace: default
+    allowed: false
+  - type: resource
+    description: RoleBinding deployer-binding binds Role deploy-manager
+    target: {apiVersion: rbac.authorization.k8s.io/v1, kind: RoleBinding, name: deployer-binding}
+    assert:
+      - {path: "{.roleRef.kind}", op: eq, value: Role}
+      - {path: "{.roleRef.name}", op: eq, value: deploy-manager}
+docs: https://kubernetes.io/docs/reference/access-authn-authz/rbac/#role-and-clusterrole
+solution: |
+  kubectl -n lab-rbac create serviceaccount deployer
+  kubectl -n lab-rbac create role deploy-manager \
+    --verb=get,list,watch,create,update,patch,delete --resource=deployments.apps
+  # add a second rule for pods (get, list) with kubectl edit, or write the Role YAML
+  kubectl -n lab-rbac create rolebinding deployer-binding --role=deploy-manager --serviceaccount=lab-rbac:deployer
+  kubectl auth can-i create deployments -n lab-rbac --as=system:serviceaccount:lab-rbac:deployer
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-rbac create serviceaccount deployer
+  kubectl -n lab-rbac apply -f - <<'EOF'
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: Role
+  metadata:
+    name: deploy-manager
+  rules:
+    - apiGroups: [apps]
+      resources: [deployments]
+      verbs: [get, list, watch, create, update, patch, delete]
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get, list]
+  EOF
+  kubectl -n lab-rbac create rolebinding deployer-binding --role=deploy-manager --serviceaccount=lab-rbac:deployer
