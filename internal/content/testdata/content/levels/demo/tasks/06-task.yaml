@@ -1,0 +1,25 @@
+id: demo-t6
+title: Demo task 6
+difficulty: hard
+ns: lab-demo-6
+requiresSnapshot: false
+statement: |
+  Create a ConfigMap `cm6` in namespace `lab-demo-6`.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: seed
+  commands:
+    - run: echo ready
+checks:
+  - type: resource
+    description: ConfigMap cm6 exists
+    target: {apiVersion: v1, kind: ConfigMap, name: cm6}
+docs: https://kubernetes.io/docs/concepts/configuration/configmap/
+solution: |
+  kubectl -n lab-demo-6 create configmap cm6
+solutionScript: |
+  kubectl -n lab-demo-6 create configmap cm6

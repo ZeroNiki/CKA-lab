@@ -1,0 +1,25 @@
+id: demo-t3
+title: Demo task 3
+difficulty: hard
+ns: lab-demo-3
+requiresSnapshot: false
+statement: |
+  Create a ConfigMap `cm3` in namespace `lab-demo-3`.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: seed
+  commands:
+    - run: echo ready
+checks:
+  - type: resource
+    description: ConfigMap cm3 exists
+    target: {apiVersion: v1, kind: ConfigMap, name: cm3}
+docs: https://kubernetes.io/docs/concepts/configuration/configmap/
+solution: |
+  kubectl -n lab-demo-3 create configmap cm3
+solutionScript: |
+  kubectl -n lab-demo-3 create configmap cm3

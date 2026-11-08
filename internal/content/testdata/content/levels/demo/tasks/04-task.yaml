@@ -1,0 +1,25 @@
+id: demo-t4
+title: Demo task 4
+difficulty: hard
+ns: lab-demo-4
+requiresSnapshot: false
+statement: |
+  Create a ConfigMap `cm4` in namespace `lab-demo-4`.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: seed
+  commands:
+    - run: echo ready
+checks:
+  - type: resource
+    description: ConfigMap cm4 exists
+    target: {apiVersion: v1, kind: ConfigMap, name: cm4}
+docs: https://kubernetes.io/docs/concepts/configuration/configmap/
+solution: |
+  kubectl -n lab-demo-4 create configmap cm4
+solutionScript: |
+  kubectl -n lab-demo-4 create configmap cm4

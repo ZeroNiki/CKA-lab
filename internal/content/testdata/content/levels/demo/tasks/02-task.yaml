@@ -1,0 +1,25 @@
+id: demo-t2
+title: Demo task 2
+difficulty: medium
+ns: lab-demo-2
+requiresSnapshot: false
+statement: |
+  Create a ConfigMap `cm2` in namespace `lab-demo-2`.
+setup:
+  manifests:
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: seed
+  commands:
+    - run: echo ready
+checks:
+  - type: resource
+    description: ConfigMap cm2 exists
+    target: {apiVersion: v1, kind: ConfigMap, name: cm2}
+docs: https://kubernetes.io/docs/concepts/configuration/configmap/
+solution: |
+  kubectl -n lab-demo-2 create configmap cm2
+solutionScript: |
+  kubectl -n lab-demo-2 create configmap cm2
