@@ -13,11 +13,14 @@ func runCanI(ctx context.Context, env Env, s Spec) (Result, error) {
 	if ns == "" {
 		ns = env.Namespace
 	}
+	// "deployments.apps" means resource deployments in API group apps, as in kubectl auth can-i.
+	resource, group, _ := strings.Cut(s.Resource, ".")
 	spec := authzv1.SubjectAccessReviewSpec{
 		ResourceAttributes: &authzv1.ResourceAttributes{
 			Namespace:   ns,
 			Verb:        s.Verb,
-			Resource:    s.Resource,
+			Group:       group,
+			Resource:    resource,
 			Subresource: s.Subresource,
 		},
 	}

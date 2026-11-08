@@ -65,3 +65,12 @@ func TestCanI_AllowedMismatch(t *testing.T) {
 		t.Fatalf("got %+v", res[0])
 	}
 }
+
+func TestCanI_ResourceWithGroup(t *testing.T) {
+	env, last := sarEnv(t, func(authzv1.SubjectAccessReviewSpec) bool { return true })
+	spec := Spec{Type: "canI", Description: "d", Subject: &Subject{User: "u"}, Verb: "create", Resource: "deployments.apps"}
+	Run(context.Background(), env, []Spec{spec})
+	if last.ResourceAttributes.Resource != "deployments" || last.ResourceAttributes.Group != "apps" {
+		t.Fatalf("attributes = %+v", last.ResourceAttributes)
+	}
+}
