@@ -1,0 +1,122 @@
+id: networking-06-canary
+title: Canary routing by header and weight
+difficulty: hard
+ns: lab-canary
+statement: |
+  In namespace `lab-canary` there is a Gateway `gw` (class `eg`, listener `http` on port 80)
+  and Services `v1` and `v2` (port 80).
+
+  Create one HTTPRoute `split` attached to `gw` with two rules:
+
+  1. Requests with header `X-Canary: "true"` go **only** to `v2`.
+  2. All other requests with path prefix `/api` are split: 80% to `v1`, 20% to `v2`.
+
+  The route must be accepted.
+setup:
+  manifests:
+    - |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: Gateway
+      metadata:
+        name: gw
+      spec:
+        gatewayClassName: eg
+        listeners:
+          - {name: http, protocol: HTTP, port: 80}
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: v1
+      spec:
+        selector:
+          matchLabels: {app: v1}
+        template:
+          metadata:
+            labels: {app: v1}
+          spec:
+            containers:
+              - {name: nginx, image: "nginx:1.27-alpine"}
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: v1
+      spec:
+        selector: {app: v1}
+        ports: [{port: 80}]
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: v2
+      spec:
+        selector:
+          matchLabels: {app: v2}
+        template:
+          metadata:
+            labels: {app: v2}
+          spec:
+            containers:
+              - {name: nginx, image: "nginx:1.27-alpine"}
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: v2
+      spec:
+        selector: {app: v2}
+        ports: [{port: 80}]
+checks:
+  - type: resource
+    description: A rule matches header X-Canary=true and sends only to v2
+    target: {apiVersion: gateway.networking.k8s.io/v1, kind: HTTPRoute, name: split}
+    assert:
+      - {path: "{.spec.parentRefs[*].name}", op: eq, value: gw}
+      - {path: '{.spec.rules[*].matches[*].headers[?(@.name=="X-Canary")].value}', op: eq, value: "true"}
+  - type: command
+    description: The header rule has exactly one backend, v2
+    run: |
+      kubectl -n lab-canary get httproute split -o json |
+        jq -r '[.spec.rules[] | select(any(.matches[]?; any(.headers[]?; .name=="X-Canary"))) | .backendRefs[].name] | join(",")'
+    stdout: {op: eq, value: v2}
+  - type: command
+    description: The /api rule splits 80/20 between v1 and v2
+    run: |
+      kubectl -n lab-canary get httproute split -o json |
+        jq -r '[.spec.rules[] | select(any(.matches[]?; .path.value=="/api" and (.headers|not))) | .backendRefs[] | "\(.name)=\(.weight)"] | sort | join(",")'
+    stdout: {op: eq, value: "v1=80,v2=20"}
+  - type: resource
+    description: HTTPRoute split is Accepted
+    target: {apiVersion: gateway.networking.k8s.io/v1, kind: HTTPRoute, name: split}
+    retry: 90s
+    assert:
+      - {path: '{.status.parents[*].conditions[?(@.type=="Accepted")].status}', op: eq, value: "True"}
+docs: https://gateway-api.sigs.k8s.io/guides/traffic-splitting/
+solution: |
+  # rules:
+  #   - matches: [{headers: [{name: X-Canary, value: "true"}]}]
+  #     backendRefs: [{name: v2, port: 80}]
+  #   - matches: [{path: {type: PathPrefix, value: /api}}]
+  #     backendRefs: [{name: v1, port: 80, weight: 80}, {name: v2, port: 80, weight: 20}]
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-canary apply -f - <<'EOF'
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: HTTPRoute
+  metadata:
+    name: split
+  spec:
+    parentRefs: [{name: gw}]
+    rules:
+      - matches:
+          - headers:
+              - {name: X-Canary, value: "true"}
+        backendRefs:
+          - {name: v2, port: 80}
+      - matches:
+          - path: {type: PathPrefix, value: /api}
+        backendRefs:
+          - {name: v1, port: 80, weight: 80}
+          - {name: v2, port: 80, weight: 20}
+  EOF

@@ -1,0 +1,96 @@
+id: networking-05-gateway
+title: Gateway and HTTPRoute
+difficulty: hard
+ns: lab-gw
+statement: |
+  In namespace `lab-gw` there is a Service `echo` (port 80).
+  The cluster has a GatewayClass `eg` (Envoy Gateway).
+
+  1. Create a Gateway `web-gw` of class `eg` with one HTTP listener named `http` on port 80.
+  2. Create an HTTPRoute `shop` attached to `web-gw` for hostname `shop.lab.local`
+     that sends all paths (prefix `/`) to Service `echo` port 80.
+
+  Both resources must be accepted by the controller.
+setup:
+  manifests:
+    - |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: echo
+      spec:
+        selector:
+          matchLabels: {app: echo}
+        template:
+          metadata:
+            labels: {app: echo}
+          spec:
+            containers:
+              - {name: nginx, image: "nginx:1.27-alpine"}
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: echo
+      spec:
+        selector: {app: echo}
+        ports: [{port: 80}]
+checks:
+  - type: resource
+    description: Gateway web-gw uses class eg with HTTP listener on 80
+    target: {apiVersion: gateway.networking.k8s.io/v1, kind: Gateway, name: web-gw}
+    assert:
+      - {path: "{.spec.gatewayClassName}", op: eq, value: eg}
+      - {path: '{.spec.listeners[?(@.name=="http")].port}', op: eq, value: "80"}
+      - {path: '{.spec.listeners[?(@.name=="http")].protocol}', op: eq, value: HTTP}
+  - type: resource
+    description: Gateway web-gw is Accepted
+    target: {apiVersion: gateway.networking.k8s.io/v1, kind: Gateway, name: web-gw}
+    retry: 90s
+    assert:
+      - {path: '{.status.conditions[?(@.type=="Accepted")].status}', op: eq, value: "True"}
+  - type: resource
+    description: HTTPRoute shop attaches to web-gw for shop.lab.local -> echo:80
+    target: {apiVersion: gateway.networking.k8s.io/v1, kind: HTTPRoute, name: shop}
+    assert:
+      - {path: "{.spec.parentRefs[*].name}", op: eq, value: web-gw}
+      - {path: "{.spec.hostnames}", op: contains, value: shop.lab.local}
+      - {path: "{.spec.rules[*].backendRefs[*].name}", op: eq, value: echo}
+      - {path: "{.spec.rules[*].backendRefs[*].port}", op: eq, value: "80"}
+  - type: resource
+    description: HTTPRoute shop is Accepted and its references are resolved
+    target: {apiVersion: gateway.networking.k8s.io/v1, kind: HTTPRoute, name: shop}
+    retry: 90s
+    assert:
+      - {path: '{.status.parents[*].conditions[?(@.type=="Accepted")].status}', op: eq, value: "True"}
+      - {path: '{.status.parents[*].conditions[?(@.type=="ResolvedRefs")].status}', op: eq, value: "True"}
+docs: https://gateway-api.sigs.k8s.io/guides/http-routing/
+solution: |
+  # Gateway: gatewayClassName: eg, listeners: [{name: http, protocol: HTTP, port: 80}]
+  # HTTPRoute: parentRefs: [{name: web-gw}], hostnames: [shop.lab.local],
+  #   rules: [{matches: [{path: {type: PathPrefix, value: /}}], backendRefs: [{name: echo, port: 80}]}]
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-gw apply -f - <<'EOF'
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: web-gw
+  spec:
+    gatewayClassName: eg
+    listeners:
+      - {name: http, protocol: HTTP, port: 80}
+  ---
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: HTTPRoute
+  metadata:
+    name: shop
+  spec:
+    parentRefs: [{name: web-gw}]
+    hostnames: [shop.lab.local]
+    rules:
+      - matches:
+          - path: {type: PathPrefix, value: /}
+        backendRefs:
+          - {name: echo, port: 80}
+  EOF

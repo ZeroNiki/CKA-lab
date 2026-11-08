@@ -1,0 +1,67 @@
+id: networking-01-nodeport
+title: NodePort Service with a named port
+difficulty: medium
+ns: lab-svc
+statement: |
+  In namespace `lab-svc` there is a Deployment `web` whose container port is named `http`.
+
+  Expose it with a Service `web-svc` of type `NodePort`:
+  - Service port `8080`,
+  - target the container port **by its name**,
+  - node port `30080`.
+
+  `curl http://192.168.56.11:30080` from the control plane must return HTTP 200.
+setup:
+  manifests:
+    - |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+        labels: {app: web}
+      spec:
+        replicas: 2
+        selector:
+          matchLabels: {app: web}
+        template:
+          metadata:
+            labels: {app: web}
+          spec:
+            containers:
+              - name: nginx
+                image: nginx:1.27-alpine
+                ports:
+                  - {name: http, containerPort: 80}
+checks:
+  - type: resource
+    description: web-svc is NodePort 8080 -> http, nodePort 30080
+    target: {apiVersion: v1, kind: Service, name: web-svc}
+    assert:
+      - {path: "{.spec.type}", op: eq, value: NodePort}
+      - {path: "{.spec.ports[0].port}", op: eq, value: "8080"}
+      - {path: "{.spec.ports[0].targetPort}", op: eq, value: http}
+      - {path: "{.spec.ports[0].nodePort}", op: eq, value: "30080"}
+  - type: command
+    description: http://192.168.56.11:30080 answers 200
+    run: curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://192.168.56.11:30080
+    stdout: {op: eq, value: "200"}
+    retry: 60s
+docs: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport
+solution: |
+  kubectl -n lab-svc expose deployment web --name=web-svc --type=NodePort --port=8080 --target-port=http
+  kubectl -n lab-svc patch service web-svc --type json \
+    -p '[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-svc apply -f - <<'EOF'
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: web-svc
+  spec:
+    type: NodePort
+    selector: {app: web}
+    ports:
+      - {port: 8080, targetPort: http, nodePort: 30080}
+  EOF
+  kubectl -n lab-svc rollout status deployment web --timeout=120s

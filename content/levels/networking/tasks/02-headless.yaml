@@ -1,0 +1,64 @@
+id: networking-02-headless
+title: StatefulSet with stable DNS names
+difficulty: medium
+ns: lab-dns
+statement: |
+  In namespace `lab-dns` create:
+
+  - a headless Service `db` selecting Pods `app=db` on port 80,
+  - a StatefulSet `db` with 2 replicas (image `nginx:1.27-alpine`, Pod label `app=db`)
+    governed by that Service.
+
+  From Pod `db-1`, the name `db-0.db.lab-dns.svc.cluster.local` must resolve.
+checks:
+  - type: resource
+    description: Service db is headless
+    target: {apiVersion: v1, kind: Service, name: db}
+    assert:
+      - {path: "{.spec.clusterIP}", op: eq, value: None}
+      - {path: "{.spec.selector.app}", op: eq, value: db}
+  - type: resource
+    description: StatefulSet db uses serviceName db and has 2 ready replicas
+    target: {apiVersion: apps/v1, kind: StatefulSet, name: db}
+    retry: 180s
+    assert:
+      - {path: "{.spec.serviceName}", op: eq, value: db}
+      - {path: "{.status.readyReplicas}", op: eq, value: "2"}
+  - type: command
+    description: db-0.db.lab-dns.svc.cluster.local resolves from db-1
+    run: kubectl -n lab-dns exec db-1 -- nslookup db-0.db.lab-dns.svc.cluster.local >/dev/null 2>&1
+    retry: 60s
+docs: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#stable-network-id
+solution: |
+  # Service: clusterIP: None, selector {app: db}, port 80
+  # StatefulSet: serviceName: db, replicas: 2, selector/labels app=db
+solutionScript: |
+  set -euo pipefail
+  kubectl -n lab-dns apply -f - <<'EOF'
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: db
+  spec:
+    clusterIP: None
+    selector: {app: db}
+    ports: [{port: 80}]
+  ---
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    name: db
+  spec:
+    serviceName: db
+    replicas: 2
+    selector:
+      matchLabels: {app: db}
+    template:
+      metadata:
+        labels: {app: db}
+      spec:
+        containers:
+          - name: nginx
+            image: nginx:1.27-alpine
+  EOF
+  kubectl -n lab-dns rollout status statefulset db --timeout=240s
