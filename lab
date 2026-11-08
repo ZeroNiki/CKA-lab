@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# CKA Lab entry point: one command to bring the stand (and later the trainer) up or down.
+set -euo pipefail
+
+cd "$(dirname "$(readlink -f "$0")")"
+
+# Everything (go, vagrant, shellcheck) comes from the flake devShell.
+if ! command -v go >/dev/null; then
+  exec nix develop --command "$0" "$@"
+fi
+
+LAB_DIR=".lab"
+NODES=(controlplane node01 node02)
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ./lab <command>
+  up              start VMs (create on first run), install addons, fetch kubeconfig
+  down            stop VMs
+  ssh [node]      shell on a node (default: controlplane)
+  snapshot-base   save snapshot "clean" of all nodes (once, after first up)
+  reset           restore all nodes to snapshot "clean"
+EOF
+  exit 2
+}
+
+all_running() {
+  local running
+  running="$(vagrant status --machine-readable | awk -F, '$3 == "state" && $4 == "running"' | wc -l)"
+  [[ "$running" -eq "${#NODES[@]}" ]]
+}
+
+cmd_up() {
+  mkdir -p "$LAB_DIR"
+  if ! all_running; then
+    vagrant up --provider=libvirt
+  fi
+  # Idempotent and quick when already installed; re-running heals a half-finished first up.
+  vagrant provision controlplane --provision-with addons
+  # The kubeconfig grants cluster-admin: keep it private and never print it.
+  (umask 077 && vagrant ssh controlplane -c 'sudo cat /etc/kubernetes/admin.conf' >"$LAB_DIR/kubeconfig" 2>/dev/null)
+  vagrant ssh-config >"$LAB_DIR/ssh_config"
+  echo "Cluster is up. Work on the control plane with: ./lab ssh"
+}
+
+cmd_down() {
+  vagrant halt
+}
+
+case "${1:-}" in
+  up) cmd_up ;;
+  down) cmd_down ;;
+  ssh) vagrant ssh "${2:-controlplane}" ;;
+  snapshot-base) vagrant snapshot save clean ;;
+  reset) vagrant snapshot restore --no-provision clean ;;
+  *) usage ;;
+esac
