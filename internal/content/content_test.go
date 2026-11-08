@@ -180,3 +180,22 @@ func TestLoad_Errors(t *testing.T) {
 		}
 	})
 }
+
+// The shipped content must always load: 5 levels, one per CKA domain.
+func TestLoad_RealContent(t *testing.T) {
+	c, err := Load("../../content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Levels) != 5 || len(c.TaskByID) != 35 || len(c.QuestionByID) != 50 {
+		t.Fatalf("levels=%d tasks=%d questions=%d", len(c.Levels), len(c.TaskByID), len(c.QuestionByID))
+	}
+	for _, task := range c.TaskByID {
+		if task.Difficulty == "easy" {
+			t.Errorf("%s: easy tasks are not used in levels", task.ID)
+		}
+		if task.Docs == "" || task.Solution == "" {
+			t.Errorf("%s: docs and solution are required for the reveal", task.ID)
+		}
+	}
+}

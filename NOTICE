@@ -1,0 +1,16 @@
+CKA Lab
+
+Task and question texts in content/ were written for this project.
+
+Topics were chosen from the CNCF CKA curriculum and inspired by:
+- theplatformlab/CKA-Certified-Kubernetes-Administrator (MIT License)
+  https://github.com/theplatformlab/CKA-Certified-Kubernetes-Administrator
+- chadmcrowell/CKA-Exercises (no license; used for topic ideas only, no text copied)
+  https://github.com/chadmcrowell/CKA-Exercises
+
+No files were copied from these repositories. If a task is adapted from the MIT-licensed
+repository in the future, mark it with `source:` and add its copyright notice below.
+
+Third-party code shipped in this repository:
+- Vue.js 3.5.45 (web/vendor/vue.esm-browser.prod.js), MIT License,
+  Copyright (c) 2018-present Yuxi (Evan) You and Vue contributors

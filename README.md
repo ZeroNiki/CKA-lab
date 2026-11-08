@@ -1,0 +1,138 @@
+# CKA Lab
+
+Локальный тренажёр к экзамену CKA. Уровни с теорией-допуском и практикой в настоящем kubeadm-кластере (Kubernetes v1.37, Vagrant + libvirt), автоматическая проверка заданий, койны и перерывы.
+
+## Требования
+
+- NixOS (или Linux с Nix flakes), libvirt/KVM, `vagrant-libvirt`.
+- Около 8 GB свободной RAM: `controlplane` 4 GB, `node01` и `node02` по 2 GB.
+- Всё остальное (Go, kubectl, shellcheck, vagrant) берётся из `nix develop`. `./lab` заходит в него сам.
+
+## Первый запуск
+
+```bash
+./lab up              # создать 3 VM, kubeadm, Calico, аддоны; запустить тренажёр
+./lab snapshot-base   # один раз: snapshot "clean" всех нод, нужен для заданий, ломающих кластер
+```
+
+UI открывается на <http://127.0.0.1:8080>.
+
+## Обычная сессия
+
+```bash
+./lab up          # поднять VM (если остановлены) и тренажёр
+./lab ssh         # работать на controlplane: kubectl, helm, etcdctl, alias k
+./lab ssh node01  # для заданий на worker-ноде
+./lab down        # остановить тренажёр и VM, освободить ресурсы ноутбука
+```
+
+| Команда | Что делает |
+|---|---|
+| `./lab up` | `vagrant up` при необходимости, аддоны, kubeconfig в `.lab/`, (пере)запуск сервера |
+| `./lab down` | останавливает сервер и `vagrant halt` |
+| `./lab ssh [node]` | shell на ноде, по умолчанию `controlplane` |
+| `./lab snapshot-base` | `vagrant snapshot save clean` для всех нод |
+| `./lab reset` | откатить все ноды к `clean` |
+| `./lab selftest ...` | проверить задания эталонными решениями (см. ниже) |
+
+## Правила игры
+
+- **Уровень**: 10 вопросов теории, затем 7 практических заданий. Все уровни открыты сразу.
+- **Теория-допуск**: можно ошибиться 1 раз. На второй ошибке блок заканчивается, вопросы и варианты перемешиваются заново. Сданная теория запоминается.
+- **Практика**: `Start` готовит задание (свежий namespace `lab-*` и стартовые объекты). Решаешь в терминале, затем `Check`.
+- **Койны**: medium 20, hard 30. Повторное решение даёт 30%, бонус за уровень 50 (один раз). `Show solution` до решения обнуляет награду за это решение. Задание всё равно нужно решить.
+- **Режимы**: `Mixed` (вопросы и задания всех тем вперемешку) и `Practice only`. Койны там начисляются, но прохождение уровня засчитывается только в режиме уровней.
+- **Задания со snapshot** ломают кластер (etcd, kubelet, API server). После `Check` (pass) или `Give up` все ноды откатываются к `clean`. В Mixed и Practice only они включаются чекбоксом.
+- **Магазин**: перерывы на 5, 15 и 30 минут. По окончании перерыва браузер показывает уведомление.
+
+Числа меняются в `config.yaml`.
+
+## Как добавить задание
+
+Задание — это один YAML-файл в `content/levels/<уровень>/tasks/`, порядок задаётся именем файла. В уровне должно быть ровно 7 заданий и 10 вопросов в `theory.yaml`. Сервер не стартует, если контент невалиден, и пишет файл и поле с ошибкой.
+
+```yaml
+id: workloads-08-example          # уникальный
+title: Short title
+difficulty: hard                  # medium | hard (easy есть, но в уровнях не используется)
+ns: lab-example                   # namespace задания, пересоздаётся при Start; обязательно "lab-"
+requiresSnapshot: false           # true, если задание ломает кластер
+statement: |
+  What must be true at the end. No commands, no hints.
+setup:                            # необязательно
+  manifests:                      # применяются в ns задания (cluster-scoped тоже можно)
+    - |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: {name: seed}
+  commands:                       # bash на ноде от пользователя vagrant (root через sudo)
+    - node: node01                # по умолчанию controlplane
+      run: sudo rm -f /etc/kubernetes/manifests/x.yaml
+checks: [...]                     # см. ниже
+docs: https://kubernetes.io/docs/...   # показывается после решения
+solution: |                       # показывается после решения
+  kubectl ...
+solutionNode: controlplane        # где выполнять solutionScript
+solutionScript: |                 # эталонное решение для ./lab selftest
+  set -euo pipefail
+  kubectl ...
+```
+
+### Типы проверок
+
+Все проверки задания выполняются целиком, без остановки на первой ошибке. `retry: 60s` повторяет проверку каждые 2 секунды, пока она не пройдёт. `timeout` задаёт лимит одной попытки, по умолчанию 10 секунд.
+
+```yaml
+# resource: объект(ы) по имени или labelSelector + JSONPath
+- type: resource
+  description: Deployment api has 3 replicas
+  target: {apiVersion: apps/v1, kind: Deployment, name: api}   # namespace: по умолчанию ns задания
+  assert:
+    - {path: "{.spec.replicas}", op: eq, value: "3"}
+# операторы: eq ne contains matches gte lte exists notExists count (count без path)
+# при labelSelector assertion должен выполняться на каждом объекте
+
+# podsReady: все Pod по селектору Ready, не меньше min
+- type: podsReady
+  description: api Pods are Ready
+  selector: app=api
+  min: 2
+  retry: 120s
+
+# canI: SubjectAccessReview (как kubectl auth can-i)
+- type: canI
+  description: deployer can create deployments
+  subject: {serviceAccount: "lab-rbac:deployer"}   # или user / group
+  verb: create
+  resource: deployments.apps
+  allowed: true                                    # по умолчанию true
+
+# command: bash на ноде, проверка exit code и stdout
+- type: command
+  description: etcd backup exists
+  node: controlplane
+  run: sudo test -f /opt/lab/etcd-backup.db
+  exitCode: 0
+  stdout: {op: eq, value: "..."}                    # необязательно
+```
+
+### Проверка нового задания
+
+```bash
+./lab selftest workloads-08-example   # одно задание
+./lab selftest --level workloads      # уровень
+./lab selftest --all                  # всё; задания со snapshot идут последними
+```
+
+Для каждого задания selftest выполняет `setup` и проверки (ожидается fail: задание не должно решаться само), затем `solutionScript` и проверки ещё раз (ожидается pass). Задания со snapshot после этого откатываются.
+
+## Разработка
+
+```bash
+nix develop
+go test -race ./...
+shellcheck lab scripts/*.sh
+go run ./cmd/cka-lab serve -content internal/content/testdata/content   # UI без кластера
+```
+
+Дизайн: `docs/superpowers/specs/2026-11-07-cka-lab-design.md`. План: `docs/superpowers/plans/2026-11-08-cka-lab.md`.
