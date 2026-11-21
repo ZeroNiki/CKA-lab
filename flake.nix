@@ -1,5 +1,5 @@
 {
-  description = "CKA Lab: local CKA trainer (Go server + kubeadm stand on vagrant-libvirt)";
+  description = "CKA Lab: local CKA trainer (Go server + kubeadm stand on Vagrant: libvirt or VirtualBox)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

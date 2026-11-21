@@ -4,8 +4,12 @@ set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")"
 
-# Everything (go, vagrant, shellcheck) comes from the flake devShell.
+# Everything (go, vagrant, shellcheck) comes from the flake devShell; without Nix, install go and vagrant yourself.
 if ! command -v go >/dev/null; then
+  if ! command -v nix >/dev/null; then
+    echo "go not found: install Go and Vagrant, or Nix with flakes (see README)" >&2
+    exit 1
+  fi
   exec nix develop --command "$0" "$@"
 fi
 
@@ -13,11 +17,29 @@ LAB_DIR=".lab"
 NODES=(controlplane node01 node02)
 ADDR="127.0.0.1:8080"
 PID_FILE="$LAB_DIR/server.pid"
+PROVIDER_FILE="$LAB_DIR/provider"
+
+# The choice is remembered: later commands (ssh, reset) must use the Vagrantfile the VMs were created with.
+if [[ -n "${LAB_PROVIDER:-}" ]]; then
+  PROVIDER="$LAB_PROVIDER"
+elif [[ -f "$PROVIDER_FILE" ]]; then
+  PROVIDER="$(cat "$PROVIDER_FILE")"
+else
+  PROVIDER="libvirt"
+fi
+case "$PROVIDER" in
+  libvirt) export VAGRANT_VAGRANTFILE=Vagrantfile ;;
+  virtualbox) export VAGRANT_VAGRANTFILE=Vagrantfile.virtualbox ;;
+  *)
+    echo "unknown LAB_PROVIDER=$PROVIDER (libvirt | virtualbox)" >&2
+    exit 2
+    ;;
+esac
 
 usage() {
   cat >&2 <<'EOF'
-usage: ./lab <command>
-  up              start VMs (create on first run), install addons, start the trainer UI
+usage: [LAB_PROVIDER=libvirt|virtualbox] ./lab <command>
+  up            start VMs (create on first run), install addons, start the trainer UI
   down            stop the trainer and the VMs
   ssh [node]      shell on a node (default: controlplane)
   snapshot-base   save snapshot "clean" of all nodes (once, after first up)
@@ -35,9 +57,10 @@ all_running() {
 
 cmd_up() {
   mkdir -p "$LAB_DIR"
+  echo "$PROVIDER" >"$PROVIDER_FILE"
   if ! all_running; then
     # Sequential: controlplane is defined first and must finish kubeadm init before workers join.
-    vagrant up --provider=libvirt --no-parallel
+    vagrant up --provider="$PROVIDER" --no-parallel
   fi
   # Idempotent and quick when already installed; re-running heals a half-finished first up.
   vagrant provision controlplane --provision-with addons

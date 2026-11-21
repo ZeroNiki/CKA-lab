@@ -1,0 +1,63 @@
+# -*- mode: ruby -*-
+# CKA Lab stand: kubeadm cluster on VirtualBox. Same nodes and scripts as Vagrantfile (libvirt).
+# Selected by `LAB_PROVIDER=virtualbox ./lab up`, which sets VAGRANT_VAGRANTFILE to this file.
+require "fileutils"
+require "securerandom"
+
+# Change the node set here only. 192.168.56.0/21 is the host-only range VirtualBox allows by default.
+NODES = [
+  { name: "controlplane", ip: "192.168.56.10", cpus: 2, memory: 4096, role: "controlplane" },
+  { name: "node01",       ip: "192.168.56.11", cpus: 2, memory: 2048, role: "worker" },
+  { name: "node02",       ip: "192.168.56.12", cpus: 2, memory: 2048, role: "worker" },
+].freeze
+
+CONTROLPLANE_IP = NODES.find { |n| n[:role] == "controlplane" }[:ip]
+LAB_DIR = File.join(__dir__, ".lab")
+TOKEN_FILE = File.join(LAB_DIR, "token")
+
+# A fixed bootstrap token lets workers join without passing the join command back from the guest.
+unless File.exist?(TOKEN_FILE)
+  FileUtils.mkdir_p(LAB_DIR)
+  alphabet = [*"a".."z", *"0".."9"]
+  token = "#{Array.new(6) { alphabet[SecureRandom.random_number(alphabet.size)] }.join}." \
+          "#{Array.new(16) { alphabet[SecureRandom.random_number(alphabet.size)] }.join}"
+  File.write(TOKEN_FILE, token)
+  File.chmod(0o600, TOKEN_FILE)
+end
+BOOTSTRAP_TOKEN = File.read(TOKEN_FILE).strip
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/ubuntu2204"
+  # Shell provisioners upload their scripts themselves; a synced folder would only add
+  # a dependency on Guest Additions (vboxsf) or rsync on the host.
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  NODES.each do |node|
+    config.vm.define node[:name] do |vm|
+      vm.vm.hostname = node[:name]
+      # Every node gets the same NAT address 10.0.2.15; the scripts pin kubelet,
+      # the API server and Calico to this private address instead.
+      vm.vm.network "private_network", ip: node[:ip]
+
+      vm.vm.provider :virtualbox do |vb|
+        vb.name = "cka-lab-#{node[:name]}"
+        vb.cpus = node[:cpus]
+        vb.memory = node[:memory]
+        # Clones share the base disk: faster first up, less disk space.
+        vb.linked_clone = true
+      end
+
+      vm.vm.provision "common", type: "shell", path: "scripts/common.sh", args: [node[:ip]]
+      if node[:role] == "controlplane"
+        vm.vm.provision "controlplane", type: "shell", path: "scripts/controlplane.sh",
+          args: [BOOTSTRAP_TOKEN, CONTROLPLANE_IP]
+        # Addons need all three nodes Ready, so `./lab up` runs this explicitly after every VM is up.
+        vm.vm.provision "addons", type: "shell", path: "scripts/addons.sh", privileged: false,
+          run: "never"
+      else
+        vm.vm.provision "worker", type: "shell", path: "scripts/worker.sh",
+          args: [BOOTSTRAP_TOKEN, CONTROLPLANE_IP]
+      end
+    end
+  end
+end

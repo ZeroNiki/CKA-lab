@@ -1,12 +1,22 @@
 # CKA Lab
 
-Локальный тренажёр к экзамену CKA. Уровни с теорией-допуском и практикой в настоящем kubeadm-кластере (Kubernetes v1.37, Vagrant + libvirt), автоматическая проверка заданий, койны и перерывы.
+Локальный тренажёр к экзамену CKA. Уровни с теорией-допуском и практикой в настоящем kubeadm-кластере (Kubernetes v1.37, Vagrant + libvirt или VirtualBox), автоматическая проверка заданий, койны и перерывы.
 
 ## Требования
 
-- NixOS (или Linux с Nix flakes), libvirt/KVM, `vagrant-libvirt`.
+- Хост x86_64 (Linux или macOS на Intel): скрипты ставят amd64-бинарники в VM.
 - Около 8 GB свободной RAM: `controlplane` 4 GB, `node01` и `node02` по 2 GB.
-- Всё остальное (Go, kubectl, shellcheck, vagrant) берётся из `nix develop`. `./lab` заходит в него сам.
+- Один из провайдеров:
+
+| Провайдер | Vagrantfile | Что нужно на хосте |
+|---|---|---|
+| `libvirt` (по умолчанию) | `Vagrantfile` | libvirt/KVM, плагин `vagrant-libvirt`, `rsync` |
+| `virtualbox` | `Vagrantfile.virtualbox` | VirtualBox 7.x |
+
+- Go, kubectl, shellcheck и vagrant берутся из `nix develop` (Nix с flakes), `./lab` заходит в него сам. Без Nix поставь Go 1.26+, Vagrant и `curl` сами: если `go` есть в `PATH`, `./lab` работает без Nix.
+
+> [!NOTE]
+> На Linux VirtualBox может не запустить VM с ошибкой `VERR_VMX_IN_VMX_ROOT_MODE`, пока загружены модули KVM. Тогда выгрузи их (`sudo modprobe -r kvm_intel kvm` или `kvm_amd kvm`) или используй libvirt.
 
 ## Первый запуск
 
@@ -16,6 +26,17 @@
 ```
 
 UI открывается на <http://127.0.0.1:8080>.
+
+### VirtualBox
+
+```bash
+LAB_PROVIDER=virtualbox ./lab up
+./lab snapshot-base
+```
+
+Выбор провайдера сохраняется в `.lab/provider`, дальше `LAB_PROVIDER` указывать не нужно: `./lab ssh`, `./lab reset` и тренажёр работают с теми же VM. Чтобы сменить провайдер, сначала удали стенд старого провайдера (`./lab down`, затем `vagrant destroy -f` или `VAGRANT_VAGRANTFILE=Vagrantfile.virtualbox vagrant destroy -f`) и `rm .lab/provider`.
+
+Напрямую через vagrant: `VAGRANT_VAGRANTFILE=Vagrantfile.virtualbox vagrant status`.
 
 ## Обычная сессия
 
@@ -135,4 +156,6 @@ shellcheck lab scripts/*.sh
 go run ./cmd/cka-lab serve -content internal/content/testdata/content   # UI без кластера
 ```
 
-Дизайн: `docs/superpowers/specs/2026-11-07-cka-lab-design.md`. План: `docs/superpowers/plans/2026-11-08-cka-lab.md`.
+## Лицензия
+
+MIT, см. [LICENSE](LICENSE). Сторонний код и источники идей перечислены в [NOTICE](NOTICE).
