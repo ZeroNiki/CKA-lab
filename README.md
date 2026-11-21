@@ -18,6 +18,43 @@
 > [!NOTE]
 > На Linux VirtualBox может не запустить VM с ошибкой `VERR_VMX_IN_VMX_ROOT_MODE`, пока загружены модули KVM. Тогда выгрузи их (`sudo modprobe -r kvm_intel kvm` или `kvm_amd kvm`) или используй libvirt.
 
+## Без Nix
+
+`./lab` заходит в `nix develop`, только если в `PATH` нет `go`. На хосте нужны лишь `go`, `vagrant` и `curl`: SSH к нодам идёт через Go-библиотеку, `kubectl` работает внутри VM. Проще всего с VirtualBox.
+
+### Ubuntu / Debian
+
+```bash
+# Vagrant из репозитория HashiCorp
+wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+  | sudo tee /etc/apt/sources.list.d/hashicorp.list
+sudo apt update
+sudo apt install -y vagrant virtualbox golang-go curl
+```
+
+### Fedora
+
+```bash
+sudo dnf install -y dnf-plugins-core
+sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+sudo dnf install -y vagrant golang curl
+```
+
+VirtualBox в Fedora не входит: его ставят из [RPM Fusion](https://rpmfusion.org/) (`VirtualBox`) или с [virtualbox.org](https://www.virtualbox.org/wiki/Linux_Downloads).
+
+### Запуск
+
+```bash
+LAB_PROVIDER=virtualbox ./lab up
+```
+
+> [!WARNING]
+> Проект требует Go 1.26+ (`go.mod`). Если `go version` показывает версию старше 1.21, Go сам скачает нужную, но некоторые дистрибутивы это запрещают (`GOTOOLCHAIN=local`), и сборка падает с `go.mod requires go >= 1.26.0`. Тогда разреши загрузку один раз: `go env -w GOTOOLCHAIN=auto`. Если Go старше 1.21, поставь свежий с <https://go.dev/dl/>.
+
+> [!TIP]
+> Хочешь libvirt вместо VirtualBox: поставь плагин по [инструкции vagrant-libvirt](https://vagrant-libvirt.github.io/vagrant-libvirt/installation.html), добавь себя в группу `libvirt` и запускай `./lab up` без `LAB_PROVIDER`.
+
 ## Первый запуск
 
 ```bash
