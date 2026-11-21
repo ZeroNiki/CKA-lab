@@ -13,14 +13,14 @@
 | `libvirt` (по умолчанию) | `Vagrantfile` | libvirt/KVM, плагин `vagrant-libvirt`, `rsync` |
 | `virtualbox` | `Vagrantfile.virtualbox` | VirtualBox 7.x |
 
-- Go, kubectl, shellcheck и vagrant берутся из `nix develop` (Nix с flakes), `./lab` заходит в него сам. Без Nix поставь Go 1.26+, Vagrant и `curl` сами: если `go` есть в `PATH`, `./lab` работает без Nix.
+- Go, kubectl, shellcheck и vagrant берутся из `nix develop` (Nix с flakes), `./lab` заходит в него сам. Как обойтись без Nix, см. [Без Nix](#без-nix).
 
 > [!NOTE]
 > На Linux VirtualBox может не запустить VM с ошибкой `VERR_VMX_IN_VMX_ROOT_MODE`, пока загружены модули KVM. Тогда выгрузи их (`sudo modprobe -r kvm_intel kvm` или `kvm_amd kvm`) или используй libvirt.
 
 ## Без Nix
 
-`./lab` заходит в `nix develop`, только если в `PATH` нет `go`. На хосте нужны лишь `go`, `vagrant` и `curl`: SSH к нодам идёт через Go-библиотеку, `kubectl` работает внутри VM. Проще всего с VirtualBox.
+Если `go` уже есть в `PATH`, `./lab` в `nix develop` не заходит. Тогда на хосте нужны только Go 1.26+, `vagrant` и `curl`: к нодам `./lab` подключается через SSH-библиотеку Go, а `kubectl` запускается внутри VM. Проще всего начать с VirtualBox.
 
 ### Ubuntu / Debian
 
@@ -71,7 +71,9 @@ LAB_PROVIDER=virtualbox ./lab up
 ./lab snapshot-base
 ```
 
-Выбор провайдера сохраняется в `.lab/provider`, дальше `LAB_PROVIDER` указывать не нужно: `./lab ssh`, `./lab reset` и тренажёр работают с теми же VM. Чтобы сменить провайдер, сначала удали стенд старого провайдера (`./lab down`, затем `vagrant destroy -f` или `VAGRANT_VAGRANTFILE=Vagrantfile.virtualbox vagrant destroy -f`) и `rm .lab/provider`.
+`./lab` запоминает провайдер в `.lab/provider`, поэтому `./lab ssh`, `./lab reset` и тренажёр работают с теми же VM без `LAB_PROVIDER`.
+
+Чтобы сменить провайдер, останови стенд (`./lab down`), удали его VM (`vagrant destroy -f` для libvirt, `VAGRANT_VAGRANTFILE=Vagrantfile.virtualbox vagrant destroy -f` для VirtualBox) и выполни `rm .lab/provider`.
 
 Напрямую через vagrant: `VAGRANT_VAGRANTFILE=Vagrantfile.virtualbox vagrant status`.
 
@@ -107,7 +109,7 @@ LAB_PROVIDER=virtualbox ./lab up
 
 ## Как добавить задание
 
-Задание — это один YAML-файл в `content/levels/<уровень>/tasks/`, порядок задаётся именем файла. В уровне должно быть ровно 7 заданий и 10 вопросов в `theory.yaml`. Сервер не стартует, если контент невалиден, и пишет файл и поле с ошибкой.
+Каждое задание лежит в отдельном YAML-файле в `content/levels/<уровень>/tasks/`, порядок определяется именем файла. В уровне должно быть ровно 7 заданий и 10 вопросов в `theory.yaml`. Если контент невалиден, сервер не стартует и пишет, в каком файле и поле ошибка.
 
 ```yaml
 id: workloads-08-example          # уникальный
@@ -138,7 +140,7 @@ solutionScript: |                 # эталонное решение для ./l
 
 ### Типы проверок
 
-Все проверки задания выполняются целиком, без остановки на первой ошибке. `retry: 60s` повторяет проверку каждые 2 секунды, пока она не пройдёт. `timeout` задаёт лимит одной попытки, по умолчанию 10 секунд.
+Проверки задания выполняются все, даже если первая уже упала. `retry: 60s` повторяет проверку каждые 2 секунды, пока она не пройдёт. `timeout` задаёт лимит одной попытки, по умолчанию 10 секунд.
 
 ```yaml
 # resource: объект(ы) по имени или labelSelector + JSONPath
